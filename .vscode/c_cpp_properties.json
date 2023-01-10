@@ -1,0 +1,26 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/gaz/catkin_ws/devel/include/**",
+        "/opt/ros/melodic/include/**",
+        "/home/gaz/catkin_ws/src/realsense-ros-gazebo/realsense-ros/realsense2_camera/include/**",
+        "/home/gaz/catkin_ws/src/realsense-ros-gazebo/realsense_gazebo_plugin/include/**",
+        "/home/gaz/catkin_ws/src/ros-rover4ws-kinematics/include/**",
+        "/home/gaz/catkin_ws/src/robot4ws_simulations/include/**",
+        "/home/gaz/catkin_ws/src/robot4ws-teleop-joystick/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}
