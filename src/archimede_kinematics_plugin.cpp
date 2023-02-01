@@ -176,8 +176,7 @@ bool ArchimedeKinematicsPlugin::initializeControllers(void)
     }
     else if (this -> _model -> GetJointCount() != 0 && this -> _model -> GetJointCount() != MOTORS)
     {
-        ROS_ERROR("Invalid number of joints... Check the model");
-        return false;
+        ROS_WARN("The model has more joints than motors");
     }
 
 

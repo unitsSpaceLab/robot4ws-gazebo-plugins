@@ -154,6 +154,15 @@ target_link_libraries(archimede_odometry_gazebo_plugin archimede_utilities ${cat
 add_library(archimede_get_link_state SHARED src/archimede_get_body_pose.cpp)
 target_link_libraries(archimede_get_link_state ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
 
+
+
+
+#  add_library(trp_get_body_pose SHARED src/trp_get_body_pose.cpp)
+# # # install(TARGETS trp_get_body_pose LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_PREFIX}/include)
+#  target_link_libraries(trp_get_body_pose ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
+
+
+
 ## Declare a C++ library
 # add_library(${PROJECT_NAME}
 #   src/${PROJECT_NAME}/robot4ws-gazebo-plugins.cpp
