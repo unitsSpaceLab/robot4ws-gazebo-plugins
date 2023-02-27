@@ -154,6 +154,9 @@ target_link_libraries(archimede_odometry_gazebo_plugin archimede_utilities ${cat
 add_library(archimede_get_link_state SHARED src/archimede_get_body_pose.cpp)
 target_link_libraries(archimede_get_link_state ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
 
+add_library(procedural_obj_gen_plugin SHARED src/procedural_obj_gen_plugin.cpp)
+target_link_libraries(procedural_obj_gen_plugin ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
+
 
 
 
