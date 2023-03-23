@@ -5,7 +5,9 @@
  * 
  * 
  * @author Matteo Caruso
- * contact: matteo.caruso@phd.units.it
+ * @contact: matteo.caruso@phd.units.it
+ * @contact: matteo.caruso1993@gmail.com
+ * 
  * 
  * 
  * 

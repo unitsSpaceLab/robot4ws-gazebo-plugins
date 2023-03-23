@@ -1,3 +1,10 @@
+/**
+* @author Matteo Caruso
+* @email: matteo.caruso@phd.units.it
+* @email: matteo.caruso1993@gmail.com
+**/
+
+
 #include "../include/trp_get_body_pose.h"
 
 

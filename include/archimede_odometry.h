@@ -1,4 +1,8 @@
-
+/**
+* @author Matteo Caruso
+* @email: matteo.caruso@phd.units.it
+* @email: matteo.caruso1993@gmail.com
+**/
 
 #ifndef ARCHIMEDE_ODOMETRY_H
 #define ARCHIMEDE_ODOMETRY_H

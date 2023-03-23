@@ -1,3 +1,9 @@
+/*
+@author: Matteo Caruso
+@email: matteo.caruso@phd.units.it
+@email: matteo.caruso1993@gmail.com
+*/
+
 #include "../include/procedural_obj_gen_plugin.h"
 
 using namespace gazebo;

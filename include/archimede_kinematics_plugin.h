@@ -1,3 +1,10 @@
+/**
+* @author Matteo Caruso
+* @email: matteo.caruso@phd.units.it
+* @email: matteo.caruso1993@gmail.com
+**/
+
+
 #ifndef ARCHIMEDE_KINEMATICS_PLUGIN_H
 #define ARCHIMEDE_KINEMATICS_PLUGIN_H
 
