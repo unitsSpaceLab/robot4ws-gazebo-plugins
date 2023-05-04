@@ -86,6 +86,7 @@ void ArchimedeOdometryPlugin::Load(physics::ModelPtr model, sdf::ElementPtr sdf)
 
 bool gazebo::ArchimedeOdometryPlugin::OnUpdate(void)
 {
+    std::cerr << "Updating\n";
     static common::Time time_current_reading;
 #if GAZEBO_MAJOR_VERSION >=8
     time_current_reading = this -> _world -> SimTime();
@@ -555,13 +556,15 @@ void gazebo::ArchimedeOdometryPlugin::publishRealTF(void)
 #if GAZEBO_MAJOR_VERSION >= 8
     ignition::math::Pose3d pose = this -> _model -> GetLink("Archimede_base_link") -> WorldPose();
 #else
+    std::cerr << "getting archimede base link\n";
     ignition::math::Pose3d pose = this -> _model -> GetLink("Archimde_base_link") -> GetWorldPose().Ign();
+    std::cerr << "got archimede base link\n";
 #endif
 
     tf_msg_real.transform.translation.x = pose.Pos().X();
     tf_msg_real.transform.translation.y = pose.Pos().Y();
     tf_msg_real.transform.translation.z = pose.Pos().Z();
-
+    std::cerr << "got archimede base link pose\n";
     tf_msg_real.transform.rotation.w = pose.Rot().W();
     tf_msg_real.transform.rotation.x = pose.Rot().X();
     tf_msg_real.transform.rotation.y = pose.Rot().Y();
