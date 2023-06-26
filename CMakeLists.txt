@@ -157,7 +157,8 @@ target_link_libraries(archimede_get_link_state ${catkin_LIBRARIES} ${GAZEBO_LIBR
 add_library(procedural_obj_gen_plugin SHARED src/procedural_obj_gen_plugin.cpp)
 target_link_libraries(procedural_obj_gen_plugin ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
 
-
+add_library(archimede_force_plugin SHARED src/archimede_apply_force.cpp)
+target_link_libraries(archimede_force_plugin ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
 
 
 #  add_library(trp_get_body_pose SHARED src/trp_get_body_pose.cpp)
