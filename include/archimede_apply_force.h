@@ -66,7 +66,7 @@ namespace gazebo
 
             transport::NodePtr node_pt; //Node for gazebo communication
 
-            event::ConnectionPtr onnection;
+            event::ConnectionPtr connection;
 
             //Publisher
             transport::PublisherPtr pub;
