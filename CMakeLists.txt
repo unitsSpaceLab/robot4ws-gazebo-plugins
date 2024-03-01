@@ -157,6 +157,8 @@ target_link_libraries(archimede_get_link_state ${catkin_LIBRARIES} ${GAZEBO_LIBR
 add_library(procedural_obj_gen_plugin SHARED src/procedural_obj_gen_plugin.cpp)
 target_link_libraries(procedural_obj_gen_plugin ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
 
+add_library(archimede_apply_artificial_slip SHARED src/archimede_apply_artificial_slip.cpp)
+target_link_libraries(archimede_apply_artificial_slip ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
 
 
 
@@ -205,10 +207,11 @@ target_link_libraries(procedural_obj_gen_plugin ${catkin_LIBRARIES} ${GAZEBO_LIB
 
 ## Mark executable scripts (Python etc.) for installation
 ## in contrast to setup.py, you can choose the destination
-# catkin_install_python(PROGRAMS
-#   scripts/my_python_script
-#   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-# )
+ catkin_install_python(PROGRAMS
+   src/archimede_apply_artificial_slip_neural_network_node.py
+   src/cmd_vel_publisher_node.py
+   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+ )
 
 ## Mark executables for installation
 ## See http://docs.ros.org/melodic/api/catkin/html/howto/format1/building_executables.html
