@@ -9,6 +9,7 @@
 import rospy
 import numpy as np
 import joblib
+import os
 from scipy.spatial.transform import Rotation as Rot
 from robot4ws_msgs.msg import Vector3Array
 from robot4ws_msgs.msg import JointState1
@@ -34,9 +35,11 @@ class NeuralNetworkNode:
         self.last_wheels_orientations = None
         self.pi_rot = Rot.from_euler('Z', np.pi, degrees=False) # 180 deg rotation around Z axis
 
-        #self.NN_model = 'best_bagging_angle_mod'
-        #self.NN_model = 'best_bagging_all_var'
-        self.NN_model = 'none'
+        #self.NN_model_name = 'best_bagging_angle_mod_OLD'
+        #self.NN_model_name = 'best_bagging_all_var_OLD'
+        #self.NN_model_name = 'best_bagging_single_wheel'
+        self.NN_model_name = 'best_bagging_all_wheels'
+        #self.NN_model_name = 'none'
 
         self.validate_plugin = True # if true, publish also all inputs and outputs of NN in a specific topic
 
@@ -54,7 +57,10 @@ class NeuralNetworkNode:
         self.publisher = rospy.Publisher(self.publish_topic_name, Vector3Array, queue_size=100)
         wheels = ["BR_wheel", "FR_wheel", "BL_wheel", "FL_wheel"]
         self.output_msg = Vector3Array(names=wheels,vectors=[Vector3(),Vector3(),Vector3(),Vector3()])
-        rospy.set_param("neural_network_model", self.NN_model)
+        if rospy.has_param("neural_network_model") :
+            self.NN_model_name = rospy.get_param("neural_network_model")
+        else :
+            rospy.set_param("neural_network_model", self.NN_model_name)
 
         # initialize validation plugin publisher
         if self.validate_plugin:
@@ -62,12 +68,13 @@ class NeuralNetworkNode:
             self.valid_plug_msg = neural_network_in_out()
 
         # Initialize prediction models
-        if self.NN_model == 'best_bagging_angle_mod':
-            self.angle_model = joblib.load('/home/ros/catkin_ws/src/archimede_rover/robot4ws-gazebo-plugins/include/Modelli_DT_robot/best_bagging_angle.pkl')
-            self.mod_model = joblib.load('/home/ros/catkin_ws/src/archimede_rover/robot4ws-gazebo-plugins/include/Modelli_DT_robot/best_bagging_mod.pkl')
-        elif self.NN_model == 'best_bagging_all_var':
-            self.all_var_model = joblib.load('/home/ros/catkin_ws/src/archimede_rover/robot4ws-gazebo-plugins/include/Modelli_DT_robot/best_bagging_all_var.pkl')
-        elif self.NN_model != 'none':
+        path_this = os.path.dirname(__file__)
+        if self.NN_model_name == 'best_bagging_all_wheels' or self.NN_model_name == 'best_bagging_single_wheel' or self.NN_model_name == 'best_bagging_all_var_OLD':
+            self.NN_model = joblib.load(os.path.join(path_this,'../Modelli_DT_robot',self.NN_model_name + '.pkl'))
+        elif self.NN_model_name == 'best_bagging_angle_mod_OLD':
+            self.angle_model = joblib.load('/home/ros/catkin_ws/src/archimede_rover/robot4ws-gazebo-plugins/Modelli_DT_robot/best_bagging_angle_OLD.pkl')
+            self.mod_model = joblib.load('/home/ros/catkin_ws/src/archimede_rover/robot4ws-gazebo-plugins/Modelli_DT_robot/best_bagging_mod_OLD.pkl')
+        elif self.NN_model_name != 'none':
                 rospy.signal_shutdown('Neural Network model not recognized! Shutting down artificial slip Neural Network node')
 
 
@@ -114,10 +121,10 @@ class NeuralNetworkNode:
             all_input_array[n*3+1] = beta
             all_input_array[n*3+2] = cmd_vel
 
-            if self.NN_model == 'best_bagging_all_var':
+            if self.NN_model_name == 'best_bagging_all_var_OLD' or self.NN_model_name == 'best_bagging_all_wheels':
                 continue
 
-            elif self.NN_model == 'best_bagging_angle_mod':
+            elif self.NN_model_name == 'best_bagging_angle_mod_OLD':
                 # run the neural network
                 # in: [alpha, cmd_X_ground, cmd_Y_ground]  or        [alpha, beta, cmd_vel]        (vel in ground frame)
                 # out:   [real_X_ground, real_Y_ground]    or  [real_dir_ground, real_mod_ground]  (vel in ground frame)
@@ -127,19 +134,25 @@ class NeuralNetworkNode:
                 real_dir_ground = self.angle_model.predict(input_array)[0]
                 real_mod_ground = self.mod_model.predict(input_array)[0]
 
-            elif self.NN_model == 'none':
+            elif self.NN_model_name =='best_bagging_single_wheel' :
+                input_array = np.array([alpha, beta, cmd_vel])
+                input_array = input_array[np.newaxis, :]
+
+                [real_dir_ground, real_mod_ground] = self.NN_model.predict(input_array)[0]
+
+            elif self.NN_model_name == 'none':
                 real_dir_ground = beta
                 real_mod_ground = cmd_vel
 
             # store results [angle mod] in [BR FR BL FL] wheels order
             outputs_array[n*2] = real_dir_ground
             outputs_array[n*2+1] = real_mod_ground
-        
+
         all_input_array = all_input_array[np.newaxis, :]
-        
-        if self.NN_model == 'best_bagging_all_var':
+
+        if self.NN_model_name == 'best_bagging_all_var_OLD' or self.NN_model_name == 'best_bagging_all_wheels':
             # inputs in [BR FR BL FL] order
-            outputs_array = self.all_var_model.predict(all_input_array)[0]
+            outputs_array = self.NN_model.predict(all_input_array)[0]
 
         for n in range(4):
             real_X_ground = outputs_array[n*2+1] * np.cos(np.pi/180*outputs_array[n*2])
@@ -197,7 +210,7 @@ class NeuralNetworkNode:
 def main():
     node = NeuralNetworkNode()
     node.initialize()
-    rospy.loginfo(f'Artificial slip Neural Network node initialized with [{node.NN_model}] model')
+    rospy.loginfo(f'Artificial slip Neural Network node initialized with [{node.NN_model_name}] model')
     rospy.spin()
 
 

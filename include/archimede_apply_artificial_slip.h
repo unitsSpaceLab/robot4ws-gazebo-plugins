@@ -9,6 +9,8 @@
 #include <robot4ws_msgs/Vector3Array.h>
 #include <robot4ws_msgs/JointState1.h>
 #include <geometry_msgs/PoseArray.h>
+#include <gazebo_msgs/GetPhysicsProperties.h>
+#include <gazebo_msgs/SetPhysicsProperties.h>
 
 #include <functional>
 #include <gazebo/gazebo.hh>

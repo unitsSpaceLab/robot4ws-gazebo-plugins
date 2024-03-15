@@ -37,6 +37,24 @@ void ArchimedeApplyArtificialSlip::Load(physics::ModelPtr _model, sdf::ElementPt
   this -> model = _model;
   this -> sdf = _sdf;
 
+  // change world update rate (-> real time factor) so that the ML model is able to properly process data
+  std::string NN_model_name;
+  gazebo_msgs::GetPhysicsProperties gazebo_ph_prop;
+  bool has_NN_model_param = ros::param::get("/neural_network_model", NN_model_name);
+  if (has_NN_model_param && NN_model_name != "none" && ros::service::call<gazebo_msgs::GetPhysicsProperties>("/gazebo/get_physics_properties",gazebo_ph_prop))
+  {
+    gazebo_msgs::SetPhysicsProperties new_gazebo_ph_prop;
+    new_gazebo_ph_prop.request.gravity = gazebo_ph_prop.response.gravity;
+    new_gazebo_ph_prop.request.ode_config = gazebo_ph_prop.response.ode_config;
+    new_gazebo_ph_prop.request.time_step = gazebo_ph_prop.response.time_step;
+    new_gazebo_ph_prop.request.max_update_rate = 100.0;
+    if (ros::service::call<gazebo_msgs::SetPhysicsProperties>("/gazebo/set_physics_properties",new_gazebo_ph_prop))
+    {
+      ros::param::set("/gazebo/max_update_rate",100.0);
+      ROS_INFO_STREAM("gazebo max_update_rate set to " << new_gazebo_ph_prop.request.max_update_rate);
+    }
+  }
+
   this -> initializePluginParam();
 
   this -> initializeLinks();
