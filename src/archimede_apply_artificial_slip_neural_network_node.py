@@ -35,11 +35,16 @@ class NeuralNetworkNode:
         self.last_wheels_orientations = None
         self.pi_rot = Rot.from_euler('Z', np.pi, degrees=False) # 180 deg rotation around Z axis
 
-        #self.NN_model_name = 'best_bagging_angle_mod_OLD'
-        #self.NN_model_name = 'best_bagging_all_var_OLD'
-        #self.NN_model_name = 'best_bagging_single_wheel'
         self.NN_model_name = 'best_bagging_all_wheels'
-        #self.NN_model_name = 'none'
+
+        # add new MLmodels here and in the _joint_state_callback ifs conditions
+        self.valid_NN_model_names = ['best_bagging_all_var_OLD',
+                                     'best_bagging_angle_mod_OLD',
+                                     'best_bagging_all_wheels',
+                                     'best_bagging_single_wheel',
+                                     'best_rf_all_var',
+                                     'best_rf_sw',
+                                     'none']
 
         self.validate_plugin = True # if true, publish also all inputs and outputs of NN in a specific topic
 
@@ -69,7 +74,7 @@ class NeuralNetworkNode:
 
         # Initialize prediction models
         path_this = os.path.dirname(__file__)
-        if self.NN_model_name == 'best_bagging_all_wheels' or self.NN_model_name == 'best_bagging_single_wheel' or self.NN_model_name == 'best_bagging_all_var_OLD':
+        if self.NN_model_name in self.valid_NN_model_names and not self.NN_model_name in ['best_bagging_angle_mod_OLD','none']:
             self.NN_model = joblib.load(os.path.join(path_this,'../Modelli_DT_robot',self.NN_model_name + '.pkl'))
         elif self.NN_model_name == 'best_bagging_angle_mod_OLD':
             self.angle_model = joblib.load('/home/ros/catkin_ws/src/archimede_rover/robot4ws-gazebo-plugins/Modelli_DT_robot/best_bagging_angle_OLD.pkl')
@@ -121,7 +126,7 @@ class NeuralNetworkNode:
             all_input_array[n*3+1] = beta
             all_input_array[n*3+2] = cmd_vel
 
-            if self.NN_model_name == 'best_bagging_all_var_OLD' or self.NN_model_name == 'best_bagging_all_wheels':
+            if self.NN_model_name in ['best_bagging_all_var_OLD','best_bagging_all_wheels','best_rf_all_var']:
                 continue
 
             elif self.NN_model_name == 'best_bagging_angle_mod_OLD':
@@ -134,7 +139,7 @@ class NeuralNetworkNode:
                 real_dir_ground = self.angle_model.predict(input_array)[0]
                 real_mod_ground = self.mod_model.predict(input_array)[0]
 
-            elif self.NN_model_name =='best_bagging_single_wheel' :
+            elif self.NN_model_name in ['best_bagging_single_wheel','best_rf_sw']:
                 input_array = np.array([alpha, beta, cmd_vel])
                 input_array = input_array[np.newaxis, :]
 
@@ -150,7 +155,7 @@ class NeuralNetworkNode:
 
         all_input_array = all_input_array[np.newaxis, :]
 
-        if self.NN_model_name == 'best_bagging_all_var_OLD' or self.NN_model_name == 'best_bagging_all_wheels':
+        if self.NN_model_name in ['best_bagging_all_var_OLD','best_bagging_all_wheels','best_rf_all_var']:
             # inputs in [BR FR BL FL] order
             outputs_array = self.NN_model.predict(all_input_array)[0]
 
