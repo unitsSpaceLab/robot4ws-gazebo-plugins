@@ -35,7 +35,7 @@ class NeuralNetworkNode:
         self.last_wheels_orientations = None
         self.pi_rot = Rot.from_euler('Z', np.pi, degrees=False) # 180 deg rotation around Z axis
 
-        self.NN_model_name = 'best_bagging_all_wheels'
+        self.NN_model_name = 'best_rf_sw'
 
         # add new MLmodels here and in the _joint_state_callback ifs conditions
         self.valid_NN_model_names = ['best_bagging_all_var_OLD',
@@ -44,6 +44,8 @@ class NeuralNetworkNode:
                                      'best_bagging_single_wheel',
                                      'best_rf_all_var',
                                      'best_rf_sw',
+                                     'best_rf_simple_slip',
+                                     'best_rf_sin_cos',
                                      'none']
 
         self.validate_plugin = True # if true, publish also all inputs and outputs of NN in a specific topic
@@ -77,8 +79,8 @@ class NeuralNetworkNode:
         if self.NN_model_name in self.valid_NN_model_names and not self.NN_model_name in ['best_bagging_angle_mod_OLD','none']:
             self.NN_model = joblib.load(os.path.join(path_this,'../Modelli_DT_robot',self.NN_model_name + '.pkl'))
         elif self.NN_model_name == 'best_bagging_angle_mod_OLD':
-            self.angle_model = joblib.load('/home/ros/catkin_ws/src/archimede_rover/robot4ws-gazebo-plugins/Modelli_DT_robot/best_bagging_angle_OLD.pkl')
-            self.mod_model = joblib.load('/home/ros/catkin_ws/src/archimede_rover/robot4ws-gazebo-plugins/Modelli_DT_robot/best_bagging_mod_OLD.pkl')
+            self.angle_model = joblib.load(path_this,'../Modelli_DT_robot/best_bagging_angle_OLD.pkl')
+            self.mod_model = joblib.load(path_this,'../Modelli_DT_robot/best_bagging_mod_OLD.pkl')
         elif self.NN_model_name != 'none':
                 rospy.signal_shutdown('Neural Network model not recognized! Shutting down artificial slip Neural Network node')
 
@@ -139,11 +141,18 @@ class NeuralNetworkNode:
                 real_dir_ground = self.angle_model.predict(input_array)[0]
                 real_mod_ground = self.mod_model.predict(input_array)[0]
 
-            elif self.NN_model_name in ['best_bagging_single_wheel','best_rf_sw']:
+            elif self.NN_model_name in ['best_bagging_single_wheel','best_rf_sw','best_rf_simple_slip']:
                 input_array = np.array([alpha, beta, cmd_vel])
                 input_array = input_array[np.newaxis, :]
 
                 [real_dir_ground, real_mod_ground] = self.NN_model.predict(input_array)[0]
+
+            elif self.NN_model_name in ['best_rf_sin_cos']:
+                input_array = np.array([np.sin(np.deg2rad(alpha)), np.cos(np.deg2rad(alpha)), np.sin(np.deg2rad(beta)), np.cos(np.deg2rad(beta)), cmd_vel])
+                input_array = input_array[np.newaxis, :]
+
+                [s_real_dir_ground, c_real_dir_ground, real_mod_ground] = self.NN_model.predict(input_array)[0]
+                real_dir_ground = np.rad2deg(np.arctan2(s_real_dir_ground,c_real_dir_ground))
 
             elif self.NN_model_name == 'none':
                 real_dir_ground = beta
