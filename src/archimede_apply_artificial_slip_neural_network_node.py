@@ -18,6 +18,7 @@ from gazebo_msgs.msg import LinkStates
 from geometry_msgs.msg import Vector3
 from robot4ws_msgs.msg import neural_network_in_out
 from std_msgs.msg import Float64
+from custom_slip_function import slipFunction
 
 class NeuralNetworkNode:
     def __init__(self) -> None:
@@ -37,7 +38,7 @@ class NeuralNetworkNode:
 
         self.NN_model_name = 'best_rf_sw'
 
-        # add new MLmodels here and in the _joint_state_callback ifs conditions
+        # add new MLmodels here, in the _joint_state_callback ifs conditions and at the end on initialize if needed
         self.valid_NN_model_names = ['best_bagging_all_var_OLD',
                                      'best_bagging_angle_mod_OLD',
                                      'best_bagging_all_wheels',
@@ -46,7 +47,8 @@ class NeuralNetworkNode:
                                      'best_rf_sw',
                                      'best_rf_simple_slip',
                                      'best_rf_sin_cos',
-                                     'none']
+                                     'none',
+                                     'use_simple_slip_function']
 
         self.validate_plugin = True # if true, publish also all inputs and outputs of NN in a specific topic
 
@@ -64,6 +66,8 @@ class NeuralNetworkNode:
         self.publisher = rospy.Publisher(self.publish_topic_name, Vector3Array, queue_size=100)
         wheels = ["BR_wheel", "FR_wheel", "BL_wheel", "FL_wheel"]
         self.output_msg = Vector3Array(names=wheels,vectors=[Vector3(),Vector3(),Vector3(),Vector3()])
+
+        # get/set MLmodel param
         if rospy.has_param("neural_network_model") :
             self.NN_model_name = rospy.get_param("neural_network_model")
         else :
@@ -73,15 +77,16 @@ class NeuralNetworkNode:
         if self.validate_plugin:
             self.valid_plug_pub = rospy.Publisher("plugin_validation_NN", neural_network_in_out, queue_size=100)
             self.valid_plug_msg = neural_network_in_out()
+            self.valid_plug_msg.header.frame_id = '[BR, FR, BL, FL]'
 
         # Initialize prediction models
         path_this = os.path.dirname(__file__)
-        if self.NN_model_name in self.valid_NN_model_names and not self.NN_model_name in ['best_bagging_angle_mod_OLD','none']:
+        if self.NN_model_name in self.valid_NN_model_names and not self.NN_model_name in ['best_bagging_angle_mod_OLD','none','use_simple_slip_function']:
             self.NN_model = joblib.load(os.path.join(path_this,'../Modelli_DT_robot',self.NN_model_name + '.pkl'))
         elif self.NN_model_name == 'best_bagging_angle_mod_OLD':
             self.angle_model = joblib.load(path_this,'../Modelli_DT_robot/best_bagging_angle_OLD.pkl')
             self.mod_model = joblib.load(path_this,'../Modelli_DT_robot/best_bagging_mod_OLD.pkl')
-        elif self.NN_model_name != 'none':
+        elif not self.NN_model_name in ['none','use_simple_slip_function']:
                 rospy.signal_shutdown('Neural Network model not recognized! Shutting down artificial slip Neural Network node')
 
 
@@ -128,7 +133,7 @@ class NeuralNetworkNode:
             all_input_array[n*3+1] = beta
             all_input_array[n*3+2] = cmd_vel
 
-            if self.NN_model_name in ['best_bagging_all_var_OLD','best_bagging_all_wheels','best_rf_all_var']:
+            if self.NN_model_name in ['best_bagging_all_var_OLD','best_bagging_all_wheels','best_rf_all_var','use_simple_slip_function']:
                 continue
 
             elif self.NN_model_name == 'best_bagging_angle_mod_OLD':
@@ -167,6 +172,8 @@ class NeuralNetworkNode:
         if self.NN_model_name in ['best_bagging_all_var_OLD','best_bagging_all_wheels','best_rf_all_var']:
             # inputs in [BR FR BL FL] order
             outputs_array = self.NN_model.predict(all_input_array)[0]
+        elif self.NN_model_name in ['use_simple_slip_function']:
+            outputs_array = slipFunction(all_input_array)
 
         for n in range(4):
             real_X_ground = outputs_array[n*2+1] * np.cos(np.pi/180*outputs_array[n*2])

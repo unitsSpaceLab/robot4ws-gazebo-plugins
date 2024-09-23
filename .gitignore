@@ -34,6 +34,7 @@
 
 include/apply_PID_force_velocity.h
 src/apply_PID_force_velocity.cpp
-Modelli_DT_robot/load_model.py
+Modelli_DT_robot/*
+*/__pycache__/
 
 *.pkl

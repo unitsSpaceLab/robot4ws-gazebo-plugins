@@ -41,7 +41,7 @@ void ArchimedeApplyArtificialSlip::Load(physics::ModelPtr _model, sdf::ElementPt
   std::string NN_model_name;
   gazebo_msgs::GetPhysicsProperties gazebo_ph_prop;
   bool has_NN_model_param = ros::param::get("/neural_network_model", NN_model_name);
-  if (has_NN_model_param && NN_model_name != "none" && ros::service::call<gazebo_msgs::GetPhysicsProperties>("/gazebo/get_physics_properties",gazebo_ph_prop))
+  if (has_NN_model_param && NN_model_name != "none" && NN_model_name != "use_simple_slip_function" && ros::service::call<gazebo_msgs::GetPhysicsProperties>("/gazebo/get_physics_properties",gazebo_ph_prop))
   {
     gazebo_msgs::SetPhysicsProperties new_gazebo_ph_prop;
     new_gazebo_ph_prop.request.gravity = gazebo_ph_prop.response.gravity;
@@ -77,12 +77,6 @@ void ArchimedeApplyArtificialSlip::Load(physics::ModelPtr _model, sdf::ElementPt
 
 void ArchimedeApplyArtificialSlip::OnUpdate(void)
 {
-  /*ignition::math::Vector3d normal_vel;
-  for (int i = 0; i < 4; i++)
-  {
-    normal_vel = this -> link[i] -> GetParentJointsLinks()[0] -> RelativeLinearVel();
-  }*/
-  
   if (this->apply_mode == "force")
   {
     this -> time_now = this -> model -> GetWorld() -> SimTime();
@@ -90,25 +84,17 @@ void ArchimedeApplyArtificialSlip::OnUpdate(void)
     common::Time dt = this->time_now - this->time_prev;
 
     ignition::math::Vector3d error, rel_real_vel;
-    double error_X, error_Y, error_Z;
 
     for (int i = 0; i < 4; i++)
     {
       // consider the full velocity components
       this -> real_vel[i] = this -> link[i] -> WorldLinearVel();
-      // only consider the XY components in wheel frame as actual velocity, ignore the Z component (ortogonal to the ground) to preserve the normal interaction
-      //rel_real_vel = this -> link[i] -> RelativeLinearVel();
-      //this -> real_vel[i] = this -> link[i] -> WorldPose().Rot().RotateVector(ignition::math::Vector3d(rel_real_vel.X(),rel_real_vel.Y(),0.0));
+      
+      error = this -> real_vel[i] - this -> target_vel[i];
 
-      error = this->real_vel[i] - this->target_vel[i];
-
-      error_X = error.X();
-      error_Y = error.Y();
-      error_Z = error.Z();
-
-      this -> pid_X_force[i].Update(error_X, dt);
-      this -> pid_Y_force[i].Update(error_Y, dt);
-      this -> pid_Z_force[i].Update(error_Z, dt);
+      this -> pid_X_force[i].Update(error.X(), dt);
+      this -> pid_Y_force[i].Update(error.Y(), dt);
+      this -> pid_Z_force[i].Update(error.Z(), dt);
     }
 
     this -> applyForce();
@@ -145,27 +131,30 @@ void ArchimedeApplyArtificialSlip::jointStateCallback(const joint_states_message
 
 void ArchimedeApplyArtificialSlip::slipVelCallback(const SLIP_MESSAGE_TYPE::ConstPtr &vel_msg)
 {
-  if (this -> is_target_vel_pub)
+  if (this -> saved_input_target_vels.size() >= this -> last_input_vels_to_save)
   {
-    for (int i = 0; i < 4; i++)
-    {
-      this -> target_vel[i].X(vel_msg -> vectors[i].x);
-      this -> target_vel[i].Y(vel_msg -> vectors[i].y);
-      this -> target_vel[i].Z(vel_msg -> vectors[i].z);
-    }
+    this -> saved_input_target_vels.erase(this -> saved_input_target_vels.begin());
   }
-  else
+  std::array<ignition::math::Vector3d,4> temp_arr;
+  
+  for (int i = 0; i < 4; i++)
   {
-    for (int i = 0; i < 4; i++)
+    temp_arr[i].Set(vel_msg -> vectors[i].x, vel_msg -> vectors[i].y, vel_msg -> vectors[i].z);
+    std::vector<ignition::math::Vector3d> filter_input({temp_arr[i]});
+    for (auto& j : this -> saved_input_target_vels)
     {
-      this -> target_slip[i].X(vel_msg -> vectors[i].x);
-      this -> target_slip[i].Y(vel_msg -> vectors[i].y);
-      this -> target_slip[i].Z(vel_msg -> vectors[i].z);
+      filter_input.push_back(j[i]);
     }
+    this -> target_vel[i] = this -> filter_target_velocity(filter_input);
   }
+  this -> saved_input_target_vels.push_back(temp_arr);
 
   if (! this -> is_target_vel_pub)
   {
+    for (int i = 0; i < 4; i++)
+    {
+      this -> target_slip[i] = this -> target_vel[i];
+    }
     this -> updateTargetVelocity();
   }
 
@@ -190,7 +179,7 @@ void ArchimedeApplyArtificialSlip::applyForce(void)
 
     force_to_add_map = ignition::math::Vector3d(force_X, force_Y, force_Z);
     wheel_orient = this -> link[i] -> GetParentJointsLinks()[0] -> WorldPose().Rot();
-    
+
     force_to_add_wh = wheel_orient.RotateVectorReverse(force_to_add_map);
     force_to_add_wh.Z() = 0; // set to zero the applied force Z-component in wheel frame
     force_to_add_map = wheel_orient.RotateVector(force_to_add_wh);
@@ -251,12 +240,26 @@ void ArchimedeApplyArtificialSlip::initializePluginParam(void)
   this -> is_simulation = true; // true for gazebo simulation, false for physical rover. (just for joint_state_topic_name and link mapping)
 
   this -> is_target_vel_pub = true; // true: the _velocity_sub topic publishes the target velocities
-                                    // false: it publishes the drift velocitites (target will be drift+commanded)
+                                    // false: it publishes the drift velocities (target will be drift+commanded)
 
   this -> check_results = true;  // true: publish results at pub_results_topic_name topic, for check purpose
   this -> print_results = false; // true: print results on terminal, for check purpose
 
   this -> validate_plugin = true;
+
+  this -> PIDTuning = false; // if true the PID params are defined as rosparams and can be changed while running,
+                            // used to tune the PID
+
+  // filter initialization
+  if (this -> sdf -> HasElement("last_input_vels_to_save"))
+  {
+    this -> last_input_vels_to_save = this -> sdf -> GetElement("last_input_vels_to_save") -> Get<int>();
+  }
+  if (this -> last_input_vels_to_save < 1)
+  {
+    this -> last_input_vels_to_save = 1;
+  }
+  ROS_INFO_STREAM("archimede_apply_artificial_slip plugin's filter window: [" << this->last_input_vels_to_save << "]");
 }
 
 
@@ -327,6 +330,14 @@ void ArchimedeApplyArtificialSlip::initializeForcePID(void)
   }
 
   this -> time_prev = this -> model -> GetWorld() -> SimTime();
+
+  if (this -> PIDTuning)
+  {
+    ros::param::set("terrain_slip_plugin_PID_kp",K_p);
+    ros::param::set("terrain_slip_plugin_PID_ki",K_i);
+    ros::param::set("terrain_slip_plugin_PID_kd",K_d);
+    ros::param::set("terrain_slip_plugin_PID_imax",i_max);
+  }
 }
 
 
@@ -337,6 +348,33 @@ void ArchimedeApplyArtificialSlip::resetForcePID(void)
     this -> pid_X_force[i].Reset();
     this -> pid_Y_force[i].Reset();
     this -> pid_Z_force[i].Reset(); 
+  }
+
+  if (this -> PIDTuning)
+  {
+    double new_kp, new_ki, new_kd, new_imax;
+    ros::param::get("terrain_slip_plugin_PID_kp", new_kp);
+    ros::param::get("terrain_slip_plugin_PID_ki", new_ki);
+    ros::param::get("terrain_slip_plugin_PID_kd", new_kd);
+    ros::param::get("terrain_slip_plugin_PID_imax", new_imax);
+    for (int i = 0; i < 4; i++)
+    {
+      pid_X_force[i].SetPGain(new_kp);
+      pid_X_force[i].SetIGain(new_ki);
+      pid_X_force[i].SetDGain(new_kd);
+      pid_X_force[i].SetIMax(new_imax);
+      pid_X_force[i].SetIMin(-new_imax);
+      pid_Y_force[i].SetPGain(new_kp);
+      pid_Y_force[i].SetIGain(new_ki);
+      pid_Y_force[i].SetDGain(new_kd);
+      pid_Y_force[i].SetIMax(new_imax);
+      pid_Y_force[i].SetIMin(-new_imax);
+      pid_Z_force[i].SetPGain(new_kp);
+      pid_Z_force[i].SetIGain(new_ki);
+      pid_Z_force[i].SetDGain(new_kd);
+      pid_Z_force[i].SetIMax(new_imax);
+      pid_Z_force[i].SetIMin(-new_imax);
+    }
   }
 }
 
@@ -471,4 +509,69 @@ void ArchimedeApplyArtificialSlip::publishPluginValidation(void)
   }
 
   this -> valid_plug_pub.publish(this -> valid_plug_msg);
+}
+
+
+ignition::math::Vector3d ArchimedeApplyArtificialSlip::filter_target_velocity(const std::vector<ignition::math::Vector3d> &input_values)
+{
+  int vectors_to_discard = 3;
+
+  ignition::math::Vector3d mean_point, out;
+  const int inp_size = input_values.size();
+  double x=0, y=0, z=0;
+  int count=0;
+  std::vector<double> distance, sorted_distance;
+
+  for (int i = 0; i < inp_size; i++)
+  {
+    x += input_values[i].X();
+    y += input_values[i].Y();
+    z += input_values[i].Z();
+  }
+
+  mean_point.Set(x/inp_size, y/inp_size, z/inp_size);
+
+  if (vectors_to_discard >= inp_size)
+  {
+    return mean_point;
+  }
+
+  for (int i = 0; i < inp_size; i++)
+  {
+    distance.push_back(input_values[i].Distance(mean_point));
+  }
+
+  sorted_distance = distance; // sorted in descending order
+  std::sort(sorted_distance.begin(), sorted_distance.end(), std::greater<double>());
+
+  x=0; y=0; z=0;
+  for (int i = 0; i < inp_size; i++)
+  {
+    // skip the vectors_to_discard farest points
+    if (distance[i] > sorted_distance[vectors_to_discard])
+    {
+      continue;
+    }
+    x += input_values[i].X();
+    y += input_values[i].Y();
+    z += input_values[i].Z();
+    count += 1;
+  }
+
+  out.Set(x/count, y/count, z/count);
+
+
+  // std::ostringstream out_msg;
+  // for (int i = 0; i < inp_size; i++)
+  // {
+  //   out_msg << "[" << input_values[i].X() << "; " << input_values[i].Y() << "; " << input_values[i].Z() << "] ";
+  // }
+  // ROS_INFO_STREAM(
+  //   "\n--- last 5 vels: " << out_msg.str()
+  //   << "---\n Outliers: " << (inp_size-count)
+  //   << "\nNew target vel: [" << out.X() << "; " << out.Y() << "; " << out.Z() << "]"
+  //   << "\n------------------------\n"
+  // );
+
+  return out;
 }
