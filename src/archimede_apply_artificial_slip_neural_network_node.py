@@ -18,7 +18,11 @@ from gazebo_msgs.msg import LinkStates
 from geometry_msgs.msg import Vector3
 from robot4ws_msgs.msg import neural_network_in_out
 from std_msgs.msg import Float64
+import warnings
 from custom_slip_function import slipFunction
+
+# ignore warning for alpha = 0°
+warnings.filterwarnings("ignore",message="Gimbal lock detected. Setting third angle to zero since it is not possible to uniquely determine all angles.")
 
 class NeuralNetworkNode:
     def __init__(self) -> None:
@@ -31,8 +35,18 @@ class NeuralNetworkNode:
         self.publisher = None
         self.last_pose = None
         self.wheel_radius = 0.085
-        self.link_input_order = [-6,-2,-8,-4] # steers from the /gazebo/link_states message to [BR, FR, BL, FL] order
-        self.joint_input_order = [2,6,0,4] # drives from the /Archimede/joint_states message to [BR, FR, BL, FL] order
+
+        # steer link in [BR, FR, BL, FL] order, as they are named in the link_states msg
+        self.steer_link_names = ["Archimede::Archimede_br_steer_link","Archimede::Archimede_fr_steer_link","Archimede::Archimede_bl_steer_link","Archimede::Archimede_fl_steer_link"]
+        # drive joint in [BR, FR, BL, FL] order, as they are named in the joint_states msg
+        self.drive_joint_names = ["Archimede_br_drive_joint","Archimede_fr_drive_joint","Archimede_bl_drive_joint","Archimede_fl_drive_joint"]
+        self.is_1st_joint_msg = True
+        self.is_1st_link_msg = True
+        self.link_input_order = [] # steers from the link_states message to [BR, FR, BL, FL] order, will be filled at 1st callback
+        self.joint_input_order = [] # drives from the joint_states message to [BR, FR, BL, FL] order, will be filled at 1st callback
+        # self.link_input_order = [-6,-2,-8,-4] # steers from the /gazebo/link_states message to [BR, FR, BL, FL] order
+        # self.joint_input_order = [2,6,0,4] # drives from the /Archimede/joint_states message to [BR, FR, BL, FL] order
+
         self.last_wheels_orientations = None
         self.pi_rot = Rot.from_euler('Z', np.pi, degrees=False) # 180 deg rotation around Z axis
 
@@ -87,13 +101,20 @@ class NeuralNetworkNode:
             self.angle_model = joblib.load(path_this,'../Modelli_DT_robot/best_bagging_angle_OLD.pkl')
             self.mod_model = joblib.load(path_this,'../Modelli_DT_robot/best_bagging_mod_OLD.pkl')
         elif not self.NN_model_name in ['none','use_simple_slip_function']:
+                rospy.loginfo(f'Unrecognized ML model [{self.NN_model_name}], shutting down [{self.node_name}]...')
                 rospy.signal_shutdown('Neural Network model not recognized! Shutting down artificial slip Neural Network node')
+
+        rospy.loginfo(f'Artificial slip Neural Network node initialized with [{self.NN_model_name}] model')
 
 
     def _joint_state_callback(self, msg_in):
-        self.output_msg.header.stamp = rospy.Time.now()
+        # if 1st msg received, fill the joints order
+        if self.is_1st_joint_msg:
+            for joint in self.drive_joint_names:
+                self.joint_input_order.append(msg_in.name.index(joint))
+            self.is_1st_joint_msg = False
 
-        # TO DO check angles for alpha=0°
+        # gimbal lock warning that raises for alpha = 0° is ignored. Angles are still correct
         euler = self.last_wheels_orientations.as_euler('ZYZ', degrees=True)
 
         map2ground_rots_arr = np.empty(4, dtype=Rot)
@@ -184,6 +205,7 @@ class NeuralNetworkNode:
             self.output_msg.vectors[n].y = real_vel_map[1]
             self.output_msg.vectors[n].z = real_vel_map[2]
 
+        self.output_msg.header.stamp = rospy.Time.now()
         # publish the output
         self.publisher.publish(self.output_msg)
 
@@ -197,29 +219,35 @@ class NeuralNetworkNode:
 
 
     def _link_state_callback(self, msg):
+        # if 1st msg received, fill the links order
+        if self.is_1st_link_msg:
+            for link in self.steer_link_names:
+                self.link_input_order.append(msg.name.index(link))
+            self.is_1st_link_msg = False
+
         # import message data
         BR_x = msg.pose[self.link_input_order[0]].orientation.x
         BR_y = msg.pose[self.link_input_order[0]].orientation.y
         BR_z = msg.pose[self.link_input_order[0]].orientation.z
         BR_w = msg.pose[self.link_input_order[0]].orientation.w
-        
+
         FR_x = msg.pose[self.link_input_order[1]].orientation.x
         FR_y = msg.pose[self.link_input_order[1]].orientation.y
         FR_z = msg.pose[self.link_input_order[1]].orientation.z
         FR_w = msg.pose[self.link_input_order[1]].orientation.w
-        
+
         BL_x = msg.pose[self.link_input_order[2]].orientation.x
         BL_y = msg.pose[self.link_input_order[2]].orientation.y
         BL_z = msg.pose[self.link_input_order[2]].orientation.z
         BL_w = msg.pose[self.link_input_order[2]].orientation.w
-        
+
         FL_x = msg.pose[self.link_input_order[3]].orientation.x
         FL_y = msg.pose[self.link_input_order[3]].orientation.y
         FL_z = msg.pose[self.link_input_order[3]].orientation.z
         FL_w = msg.pose[self.link_input_order[3]].orientation.w
-        
+
         self.last_wheels_orientations = Rot.from_quat([[BR_x, BR_y, BR_z, BR_w],[FR_x, FR_y, FR_z, FR_w],[BL_x, BL_y, BL_z, BL_w],[FL_x, FL_y, FL_z, FL_w]])
-        
+
         # post-rotate BR and FR frames by 180° around Z-axis. NN was trained with all wheels frames allined with base frame (for zero steering),
         # while in simulation all Y axis point outside the rover (BR and FR are inverted)
         # BR and FR commanded velocities will be inverted too
@@ -231,7 +259,6 @@ class NeuralNetworkNode:
 def main():
     node = NeuralNetworkNode()
     node.initialize()
-    rospy.loginfo(f'Artificial slip Neural Network node initialized with [{node.NN_model_name}] model')
     rospy.spin()
 
 

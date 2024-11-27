@@ -67,7 +67,14 @@ void ArchimedeApplyArtificialSlip::Load(physics::ModelPtr _model, sdf::ElementPt
   {
     this -> initializeForcePID();
   }
-  
+
+  // START this part might be needed in order to use the gazebo contacts, in case...
+  // there is nothing else listening to them (ex. contact sensors or client->View->Contacts activated)
+  this -> dummy_contact_node = transport::NodePtr(new transport::Node());
+  this -> dummy_contact_node -> Init();
+  this -> dummy_contact_sub = this -> dummy_contact_node -> Subscribe("~/physics/contacts", &ArchimedeApplyArtificialSlip::dummy_contact_callback, this);
+  // END this part might be needed in order to use the gazebo contacts, in case...
+
   this -> updateConnection = event::Events::ConnectWorldUpdateBegin(
       std::bind(&ArchimedeApplyArtificialSlip::OnUpdate, this));
 
@@ -108,27 +115,6 @@ void ArchimedeApplyArtificialSlip::OnUpdate(void)
 }
 
 
-template <class joint_states_message_type>
-void ArchimedeApplyArtificialSlip::jointStateCallback(const joint_states_message_type &joint_msg)
-{
-  for (int i = 0; i < 4; i++)
-  {
-    this -> joint_velocities[i] = joint_msg -> velocity[this -> link_map[i]];     // wheels
-    this -> joint_velocities[i+4] = joint_msg -> velocity[this -> link_map[i+4]]; // steers (not used)
-
-    this -> theor_vel[i] = this -> link[i] -> GetParentJoints()[0] -> GetParent() -> 
-        WorldPose().Rot().RotateVector(ignition::math::Vector3d(joint_velocities[i]*wheel_radius, 0, 0));
-  }
-
-  this -> updateTargetVelocity();
-
-  if (this -> apply_mode == "force")
-  {
-    this -> resetForcePID();
-  }
-}
-
-
 void ArchimedeApplyArtificialSlip::slipVelCallback(const SLIP_MESSAGE_TYPE::ConstPtr &vel_msg)
 {
   if (this -> saved_input_target_vels.size() >= this -> last_input_vels_to_save)
@@ -149,19 +135,10 @@ void ArchimedeApplyArtificialSlip::slipVelCallback(const SLIP_MESSAGE_TYPE::Cons
   }
   this -> saved_input_target_vels.push_back(temp_arr);
 
-  if (! this -> is_target_vel_pub)
-  {
-    for (int i = 0; i < 4; i++)
-    {
-      this -> target_slip[i] = this -> target_vel[i];
-    }
-    this -> updateTargetVelocity();
-  }
-
-  if (this -> apply_mode == "force")
-  {
-    this -> resetForcePID();
-  }
+  // if (this -> apply_mode == "force")
+  // {
+  //   this -> resetForcePID();
+  // }
 }
 
 
@@ -171,18 +148,61 @@ void ArchimedeApplyArtificialSlip::applyForce(void)
   ignition::math::Vector3d force_to_add_map, force_to_add_wh;
   ignition::math::Quaterniond wheel_orient;
 
+  physics::ContactManager *contact_manager = this->model->GetWorld()->Physics()->GetContactManager();
+  // ROS_INFO_STREAM("Contact manager check: " << contact_manager->GetContactCount() << "\n");
+  bool wheels_in_contact[4] = {false};
+  for (int i = 0; i < contact_manager->GetContactCount(); i++)
+  {
+    physics::Contact *contact_i = contact_manager -> GetContact(i);
+    // ROS_INFO_STREAM("Contact " << i << ": " << contact_i->collision1->GetName() << "  -  " << contact_i->collision2->GetName() << "\n");
+
+    if ((contact_i->collision1->GetModel()->GetName()==this->model->GetName()) == (contact_i->collision2->GetModel()->GetName()==this->model->GetName()))
+    {
+      continue;
+    }
+
+    if ((!wheels_in_contact[0])
+         && (contact_i->collision1->GetName()==this->link_collision_name[0] || contact_i->collision2->GetName()==this->link_collision_name[0]))
+    {
+      wheels_in_contact[0] = true;
+    }
+    else if ((!wheels_in_contact[1])
+         && (contact_i->collision1->GetName()==this->link_collision_name[1] || contact_i->collision2->GetName()==this->link_collision_name[1]))
+    {
+      wheels_in_contact[1] = true;
+    }
+    else if ((!wheels_in_contact[2])
+         && (contact_i->collision1->GetName()==this->link_collision_name[2] || contact_i->collision2->GetName()==this->link_collision_name[2]))
+    {
+      wheels_in_contact[2] = true;
+    }
+    else if ((!wheels_in_contact[3])
+         && (contact_i->collision1->GetName()==this->link_collision_name[3] || contact_i->collision2->GetName()==this->link_collision_name[3]))
+    {
+      wheels_in_contact[3] = true;
+    }
+  }
+
   for (int i = 0; i < 4; i++)
-  { 
-    force_X = this -> pid_X_force[i].GetCmd();
-    force_Y = this -> pid_Y_force[i].GetCmd();
-    force_Z = this -> pid_Z_force[i].GetCmd();
+  {
+    // if the wheel is in contact with no other body, don't apply any force
+    if (!wheels_in_contact[i])
+    {
+      force_to_add_map = ignition::math::Vector3d(0, 0, 0);
+    }
+    else
+    {
+      force_X = this -> pid_X_force[i].GetCmd();
+      force_Y = this -> pid_Y_force[i].GetCmd();
+      force_Z = this -> pid_Z_force[i].GetCmd();
 
-    force_to_add_map = ignition::math::Vector3d(force_X, force_Y, force_Z);
-    wheel_orient = this -> link[i] -> GetParentJointsLinks()[0] -> WorldPose().Rot();
+      force_to_add_map = ignition::math::Vector3d(force_X, force_Y, force_Z);
+      wheel_orient = this -> link[i] -> GetParentJointsLinks()[0] -> WorldPose().Rot();
 
-    force_to_add_wh = wheel_orient.RotateVectorReverse(force_to_add_map);
-    force_to_add_wh.Z() = 0; // set to zero the applied force Z-component in wheel frame
-    force_to_add_map = wheel_orient.RotateVector(force_to_add_wh);
+      force_to_add_wh = wheel_orient.RotateVectorReverse(force_to_add_map);
+      force_to_add_wh.Z() = 0; // set to zero the applied force Z-component in wheel frame
+      force_to_add_map = wheel_orient.RotateVector(force_to_add_wh);
+    }
 
     this -> link[i] -> AddForce(force_to_add_map);
   }
@@ -239,9 +259,6 @@ void ArchimedeApplyArtificialSlip::initializePluginParam(void)
 
   this -> is_simulation = true; // true for gazebo simulation, false for physical rover. (just for joint_state_topic_name and link mapping)
 
-  this -> is_target_vel_pub = true; // true: the _velocity_sub topic publishes the target velocities
-                                    // false: it publishes the drift velocities (target will be drift+commanded)
-
   this -> check_results = true;  // true: publish results at pub_results_topic_name topic, for check purpose
   this -> print_results = false; // true: print results on terminal, for check purpose
 
@@ -266,6 +283,7 @@ void ArchimedeApplyArtificialSlip::initializePluginParam(void)
 void ArchimedeApplyArtificialSlip::initializeLinks(void)
 {
   this -> link_name = {"Archimede_br_wheel_link", "Archimede_fr_wheel_link", "Archimede_bl_wheel_link", "Archimede_fl_wheel_link"};
+  this -> link_collision_name = {"Archimede_br_wheel_link_collision", "Archimede_fr_wheel_link_collision", "Archimede_bl_wheel_link_collision", "Archimede_fl_wheel_link_collision"};
 
   for (int i = 0; i < 4; i++)
   {
@@ -277,33 +295,10 @@ void ArchimedeApplyArtificialSlip::initializeLinks(void)
     }
 
     // set the link friction coefficients to zero
-    auto link_friction = this -> link[i] -> GetCollision(this->link_name[i]+"_collision") -> GetSurface() -> FrictionPyramid();
+    auto link_friction = this -> link[i] -> GetCollision(this->link_collision_name[i]) -> GetSurface() -> FrictionPyramid();
     link_friction -> SetMuPrimary(0);
     link_friction -> SetMuSecondary(0);
     link_friction -> SetMuTorsion(0);
-  }
-
-  if (this -> is_simulation)
-  {
-    this -> link_map[0] = 2;  // BR wheel link / joint
-    this -> link_map[1] = 6;  // FR wheel link / joint
-    this -> link_map[2] = 0;  // BL wheel link / joint
-    this -> link_map[3] = 4;  // FL wheel link / joint
-    this -> link_map[4] = 3;  // BR steer link / joint
-    this -> link_map[5] = 7;  // FR steer link / joint
-    this -> link_map[6] = 1;  // BL steer link / joint
-    this -> link_map[7] = 5;  // FL steer link / joint
-  } 
-  else
-  {
-    this -> link_map[0] = 0;  // BR wheel link / joint
-    this -> link_map[1] = 1;  // FR wheel link / joint
-    this -> link_map[2] = 2;  // BL wheel link / joint
-    this -> link_map[3] = 3;  // FL wheel link / joint
-    this -> link_map[4] = 4;  // BR steer link / joint
-    this -> link_map[5] = 5;  // FR steer link / joint
-    this -> link_map[6] = 6;  // BL steer link / joint
-    this -> link_map[7] = 7;  // FL steer link / joint
   }
 }
 
@@ -383,27 +378,6 @@ void ArchimedeApplyArtificialSlip::initializeROSelements(void)
 { 
   this -> _ros_node = new ros::NodeHandle();
 
-  if (! this -> is_target_vel_pub)
-  {
-    ros::SubscribeOptions sub_opt;
-    if (this -> is_simulation)
-    { 
-      this -> _ros_node -> param<std::string>("joint_states_topic_name", this -> joint_states_topic_name, "Archimede/joint_states");
-
-      sub_opt = ros::SubscribeOptions::create<sensor_msgs::JointState>(this -> joint_states_topic_name, 100, 
-                boost::bind(&ArchimedeApplyArtificialSlip::jointStateCallback<sensor_msgs::JointState::ConstPtr>, this, _1), ros::VoidPtr(), NULL);
-    }
-    else
-    { 
-      this -> _ros_node -> param<std::string>("joint_states_topic_name", this -> joint_states_topic_name, "joint_states");
-
-      sub_opt = ros::SubscribeOptions::create<robot4ws_msgs::JointState1>(this -> joint_states_topic_name, 100, 
-                boost::bind(&ArchimedeApplyArtificialSlip::jointStateCallback<robot4ws_msgs::JointState1::ConstPtr>, this, _1), ros::VoidPtr(), NULL);
-    }
-
-    this -> _joint_states_sub = this -> _ros_node -> subscribe(sub_opt);
-  }
-
   this -> _ros_node -> param<std::string>("neural_network_output_topic", this -> slip_velocities_topic_name, "terrain_neural_network_out"); 
 
   ros::SubscribeOptions sub_opt2 = ros::SubscribeOptions::create<SLIP_MESSAGE_TYPE>(this -> slip_velocities_topic_name, 100, 
@@ -477,15 +451,6 @@ void ArchimedeApplyArtificialSlip::printResults(void)
     << "errors Z :\t" << zpe << " " << zie << " " << zde << "\n"
     << "PID out force:\t" << this->pid_X_force[indx].GetCmd() << " " << this->pid_Y_force[indx].GetCmd() << " " << this->pid_Z_force[indx].GetCmd() 
     << "\n-------------------------------------\n");
-}
-
-
-void ArchimedeApplyArtificialSlip::updateTargetVelocity(void)
-{
-  for (int i = 0; i < 4; i++)
-  {
-    this -> target_vel[i] = this -> theor_vel[i] + this -> target_slip[i];
-  }
 }
 
 

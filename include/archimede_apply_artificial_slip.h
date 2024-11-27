@@ -16,6 +16,7 @@
 #include <gazebo/gazebo.hh>
 #include <gazebo/physics/physics.hh>
 #include <gazebo/common/common.hh>
+#include <gazebo/transport/transport.hh>
 #include <ignition/math/Vector3.hh>
 #include <ignition/math/Pose3.hh>
 #include <ignition/math/Quaternion.hh>
@@ -46,19 +47,15 @@ namespace gazebo
             void resetForcePID(void);
             void initializeROSelements(void);
 
-            template <class joint_states_message_type>
-            void jointStateCallback(const joint_states_message_type &joint_msg);
             void slipVelCallback(const SLIP_MESSAGE_TYPE::ConstPtr &vel_msg);
             void publishResults(void);
             void printResults(void);
             void applyForce(void);
             void applyVelocity(void);
-            void updateTargetVelocity(void);
             void publishPluginValidation(void);
             ignition::math::Vector3d filter_target_velocity(const std::vector<ignition::math::Vector3d> &input_values);
 
 
-            int link_map[8];
             double joint_velocities[8];
             double wheel_radius = 0.085;
             bool is_simulation; // true for gazebo simulation, false for physical rover. (just for joint_states topic and link mapping)
@@ -69,11 +66,10 @@ namespace gazebo
 
             std::string apply_mode; // apply force or velocity
             std::vector<std::string> link_name;
+            std::vector<std::string> link_collision_name;
 
-            ignition::math::Vector3d theor_vel[4];      // theoretical wheel velocity in world frame calculated from wheel angular velocity
-            ignition::math::Vector3d real_vel[4];       // real velocity in world frame, only used in force mode to set the pid error
-            ignition::math::Vector3d target_slip[4];    // velocity that must be added to the wheel, in world frame
-            ignition::math::Vector3d target_vel[4];     // target velocity (theor_vel + target_slip), in world frame, filtered on the last last_input_vels_to_save values
+            ignition::math::Vector3d real_vel[4];      // real velocity in world frame, only used in force mode to set the pid error
+            ignition::math::Vector3d target_vel[4];    // target velocity (theor_vel + target_slip), in world frame, filtered on the last last_input_vels_to_save values
             int last_input_vels_to_save = 0;            // number of last target velocities to keep for filtering. <= 1 to keep last value only
             std::vector<std::array<ignition::math::Vector3d,4>> saved_input_target_vels; // last last_input_vels_to_save target velocity values
 
@@ -90,8 +86,6 @@ namespace gazebo
             ros::Subscriber _joint_states_sub;
             std::string slip_velocities_topic_name;  // topic which we get slip velocities from, either as drift component or directly as target velocities to apply
             ros::Subscriber _slip_velocities_sub;
-            bool is_target_vel_pub; // true: the _velocity_sub topic publishes the target velocities
-                                    // false: it publishes the drift velocitites (target will be drift+commanded)
 
             bool check_results;
             bool print_results;
@@ -105,6 +99,13 @@ namespace gazebo
             geometry_msgs::PoseArray valid_plug_msg;
 
             event::ConnectionPtr updateConnection; // Pointer to the update event connection
+
+            // START this part might be needed in order to use the gazebo contacts, in case...
+            // there is nothing else listening to them (ex. contact sensors or client->View->Contacts activated)
+            transport::NodePtr dummy_contact_node;
+            transport::SubscriberPtr dummy_contact_sub;
+            inline void dummy_contact_callback(ConstWorldStatisticsPtr &_msg){return;}
+            // END this part might be needed in order to use the gazebo contacts, in case...
     };
 
     // Register this plugin with the simulator

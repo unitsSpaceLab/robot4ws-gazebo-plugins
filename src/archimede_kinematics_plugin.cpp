@@ -276,12 +276,15 @@ void ArchimedeKinematicsPlugin::commandsCallback(const robot4ws_msgs::Dynamixel_
     this -> _last_filtered_commands[6] = dyn_msg -> Seven_Primary;
     this -> _last_filtered_commands[7] = dyn_msg -> Eight_Primary;
 
-    for (int i=0; i<8; i++)
+    if (this -> print_commands)
     {
-        std::cerr << this -> _last_filtered_commands[i] << "\t";
-        if (i==7)
+        for (int i=0; i<8; i++)
         {
-            std::cerr << "\n";
+            std::cerr << this -> _last_filtered_commands[i] << "\t";
+            if (i==7)
+            {
+                std::cerr << "\n";
+            }
         }
     }
 

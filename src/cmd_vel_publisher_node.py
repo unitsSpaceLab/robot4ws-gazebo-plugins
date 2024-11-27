@@ -5,13 +5,9 @@ import pandas
 from geometry_msgs.msg import Twist
 
 def cmd_vel_pub():
-    # import the cmd_vel file 
-    #cmd_vel_path = '/home/ros/data_test/DLR_surface2/cmd_vel.csv'
-    #cmd_vel_path = '/home/ros/data_test/DLR_surface3/cmd_vel.csv'
-    #cmd_vel_path = '/home/ros/data_test/DLR_origin_path/cmd_vel_origin.csv'
-    #cmd_vel_path = '/home/ros/data_test/VRC_terrain/cmd_vel.csv'
-    #cmd_vel_path = '/home/ros/data_test/simple_straight_paths/path3/path3_cmd_vel.csv'
-    cmd_vel_path = '/home/ros/archimede_tilted_floor_tests/cmd_vel_1.csv'
+    # import the cmd_vel file
+    cmd_vel_path = '/home/ros/DLR_rtabmap_files/new_tests_202410_/cmd_vel_origin.csv'
+    #cmd_vel_path = '/home/ros/archimede_tilted_floor_tests/cmd_vel_1.csv'
 
     file = pandas.read_csv(cmd_vel_path)
 
@@ -20,8 +16,8 @@ def cmd_vel_pub():
     rospy.loginfo('cmd_vel publisher node initialized')
 
     # reset the starting time
-    row = 0 #674, 5574
-    final_row = len(file.time)-1  # = len(file.time)-1 for running until end of file, 884, 5735
+    row = 674 #674, 5574
+    final_row = 884  # = len(file.time)-1 for running until end of file, 884, 5735
     file.time = file.time - file.time[row]
     msg = Twist()
     while not rospy.is_shutdown():

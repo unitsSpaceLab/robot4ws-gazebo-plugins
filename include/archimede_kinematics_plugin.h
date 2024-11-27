@@ -91,6 +91,7 @@ namespace gazebo
             bool print_debug = false;
             bool use_odometry = false; //This set to false. Odometry is still a TO-DO!
             bool is_plugin_running;
+            bool print_commands = false;
 
 
             bool debug_params = true;
