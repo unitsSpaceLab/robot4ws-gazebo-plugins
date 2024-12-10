@@ -209,7 +209,6 @@ target_link_libraries(archimede_apply_artificial_slip ${catkin_LIBRARIES} ${GAZE
 ## in contrast to setup.py, you can choose the destination
  catkin_install_python(PROGRAMS
    src/archimede_apply_artificial_slip_neural_network_node.py
-   src/cmd_vel_publisher_node.py
    DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
  )
 
