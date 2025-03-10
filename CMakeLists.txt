@@ -160,6 +160,8 @@ target_link_libraries(procedural_obj_gen_plugin ${catkin_LIBRARIES} ${GAZEBO_LIB
 add_library(archimede_apply_artificial_slip SHARED src/archimede_apply_artificial_slip.cpp)
 target_link_libraries(archimede_apply_artificial_slip ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
 
+add_library(apply_single_wheel_terramechanic_model SHARED src/apply_single_wheel_terramechanic_model.cpp)
+target_link_libraries(apply_single_wheel_terramechanic_model ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
 
 
 #  add_library(trp_get_body_pose SHARED src/trp_get_body_pose.cpp)
