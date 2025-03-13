@@ -64,7 +64,7 @@ namespace gazebo
 
             struct {
                 int rim_pts = rim_points;    // rim discretization points
-                std::string bulldozing_resistence = "Ishigami";  // model for sidewall bulldozing force:...
+                std::string bulldozing_resistence = "neglect";  // model for sidewall bulldozing force:...
                                                 // "Ishigami", "Pavlov" (for Pavlov/Wong) or "neglect"
                 bool use_compact_model; // use compact model for compute forces/moments instead of integrating them along the wheel rim
             } options;

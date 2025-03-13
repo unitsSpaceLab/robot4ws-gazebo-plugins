@@ -18,15 +18,7 @@ ApplySingleWheelTerramechanicModel::ApplySingleWheelTerramechanicModel() : Model
 
 ApplySingleWheelTerramechanicModel::~ApplySingleWheelTerramechanicModel()
 {
-  /* if (this -> check_results)
-  { this -> pub_results.shutdown();}
-  if (this -> validate_plugin)
-  { this -> valid_plug_pub.shutdown();}
-  
-  this -> _joint_states_sub.shutdown();
-  this -> _slip_velocities_sub.shutdown();
   this -> _ros_node -> shutdown();
- */
   ROS_INFO("apply_wheels_terramechanics_model plugin shutted down");
 }
 
@@ -87,7 +79,7 @@ void ApplySingleWheelTerramechanicModel::OnUpdate(void)
   this -> contact_frame_rot.Normalize();
 
   // manually set soil params, not needed here if checkContact function is used
-  this -> soil_params.name = "Sand_marsSim"; // [Soil_Direct_#90_sand, Sand_marsSim]
+  // this -> soil_params.name = "Sand_marsSim"; // [Soil_Direct_#90_sand, Sand_marsSim]
   this -> setSoilParams();
 
   // get wheel state, set wheel_states_params and compute slips
@@ -145,7 +137,6 @@ void ApplySingleWheelTerramechanicModel::OnUpdateCompact(void)
   {this -> contact_frame_rot = this -> contact_frame_rot * ignition::math::Quaterniond(0,0,M_PI);}
   this -> contact_frame_rot.Normalize();
 
-
   this -> wheel_params.r_s = this->wheel_params.r + 0.5 * this->wheel_params.h_g;
 
   // get wheel state, set wheel_states_params and compute slips
@@ -164,7 +155,7 @@ void ApplySingleWheelTerramechanicModel::OnUpdateCompact(void)
                                                             << "\n\t\t\t\t\t\tomega: " << this->wheel_state_params.omega << ", slip: " << this->wheel_state_params.s << ", beta: " << 180/M_PI*this->wheel_state_params.beta);}
 
   // manually set soil params
-  this -> soil_params.name = "Sand_marsSim"; // [Soil_Direct_#90_sand, Sand_marsSim]
+  // this -> soil_params.name = "Sand_marsSim"; // [Soil_Direct_#90_sand, Sand_marsSim]
   this -> setSoilParams();
 
   this -> setTunedParams();
@@ -456,8 +447,24 @@ void ApplySingleWheelTerramechanicModel::setWheelParams(void)
 
 void ApplySingleWheelTerramechanicModel::setSoilParams(void)
 {
-  // TODO: set a map or something between world models (this->prev_contact_name) and soil_names
   // this -> soil_params.name = "Soil_Direct_#90_sand";
+
+  std::string terrain_below_name;
+  double terrain_below_distance; // unused
+  this -> link_wheel -> GetNearestEntityBelow(terrain_below_distance, terrain_below_name); // this takes the collision name
+
+  // TODO: the mapping could be done in a separate file (.yaml or something) instead of here, it depends on world models
+  // map model-soil type for khalid's world
+  if (terrain_below_name.find("terrain_blue") != std::string::npos)
+  {this -> soil_params.name = "Soil_Direct_#90_sand";}
+  else if (terrain_below_name.find("terrain_red") != std::string::npos)
+  {this -> soil_params.name = "Sand_marsSim";}
+  else if (terrain_below_name.find("terrain_green") != std::string::npos)
+  {this -> soil_params.name = "Clay";}
+  else if (terrain_below_name.find("terrain_yellow") != std::string::npos)
+  {this -> soil_params.name = "Dry_sand";}
+  else // default
+  {this -> soil_params.name = "Sand_marsSim";}
 
   if (this -> soil_params.name == "Soil_Direct_#90_sand")
   { // from Pavlov (2024)
@@ -466,7 +473,69 @@ void ApplySingleWheelTerramechanicModel::setSoilParams(void)
     this -> soil_params.rho = 13.03 *pow(10,3);
     this -> soil_params.c = 1.0 *pow(10,3);
     this -> soil_params.K = 0.021;
-  } else {
+    // n0, n1, n2 are assigned later in setTunedParams
+  }
+  else if (this->soil_params.name == "Clay")
+  { // from Ding et al. (2015), table I
+    this->soil_params.k_c = 13.19 * pow(10,3);
+    this->soil_params.k_phi = 692.15 * pow(10,3);
+    this->soil_params.k = (this->soil_params.k_c / this->wheel_params.b + this->soil_params.k_phi);
+    this->soil_params.phi = 13 * M_PI/180;
+    this->soil_params.c = 4.14 * pow(10,3);
+    this->soil_params.K = 6 * pow(10,-3);
+
+    this->soil_params.n = 0.5;
+
+    this -> tuned_params.n0 = NAN;
+    this -> tuned_params.n1 = NAN;
+    this -> tuned_params.n2 = NAN;
+  }
+  else if (this->soil_params.name == "Dry_sand")
+  { // from Ding et al. (2015), table I
+    this->soil_params.k_c = 0.99 * pow(10,3);
+    this->soil_params.k_phi = 1528.43 * pow(10,3);
+    this->soil_params.k = (this->soil_params.k_c / this->wheel_params.b + this->soil_params.k_phi);
+    this->soil_params.phi = 28 * M_PI/180;
+    this->soil_params.c = 1.04 * pow(10,3);
+    this->soil_params.K = 10 * pow(10,-3); // [10-25]*1e3, 10: firm sand - 25: loose sand
+
+    this->soil_params.n = 1.10;
+
+    this -> tuned_params.n0 = NAN;
+    this -> tuned_params.n1 = NAN;
+    this -> tuned_params.n2 = NAN;
+  }
+  else if (this->soil_params.name == "Lunar_soil")
+  { // from Ding et al. (2015), table I
+    this->soil_params.k_c = 1.4 * pow(10,3);
+    this->soil_params.k_phi = 820 * pow(10,3);
+    this->soil_params.k = (this->soil_params.k_c / this->wheel_params.b + this->soil_params.k_phi);
+    this->soil_params.phi = 35 * M_PI/180; // [25-50]*pi/180
+    this->soil_params.c = 0.17 * pow(10,3); // [0.1-2.7]*1e3
+    this->soil_params.K = 18 * pow(10,-3);
+
+    this->soil_params.n = 1.0;
+
+    this -> tuned_params.n0 = NAN;
+    this -> tuned_params.n1 = NAN;
+    this -> tuned_params.n2 = NAN;
+  }
+  else if (this->soil_params.name == "HIT-LSS1")
+  { // from Ding et al. (2015), table I
+    this->soil_params.k_c = 15.6 * pow(10,3);
+    this->soil_params.k_phi = 2407.4 * pow(10,3);
+    this->soil_params.k = (this->soil_params.k_c / this->wheel_params.b + this->soil_params.k_phi);
+    this->soil_params.phi = 31.9 * M_PI/180;
+    this->soil_params.c = 0.25 * pow(10,3);
+    this->soil_params.K = 10 * pow(10,-3); // [9.7-13.1]*1e-3
+
+    this->soil_params.n = 1.10;
+
+    this -> tuned_params.n0 = NAN;
+    this -> tuned_params.n1 = NAN;
+    this -> tuned_params.n2 = NAN;
+  }
+  else {
     if (!(this->soil_params.name == "Sand_marsSim"))
     {ROS_WARN("Unrecognized soil name! Default it to [Sand_marsSim] soil...");}
     // from Zhou et al. 2023 (MarsSim...) table2
@@ -555,6 +624,10 @@ void ApplySingleWheelTerramechanicModel::setTunedParams(void)
 
   this -> tuned_params.d0 = 1;
   this -> tuned_params.d1 = 0.5;
+
+  // case n is already set for the soil
+  if (std::isnan(this->tuned_params.n0) || std::isnan(this->tuned_params.n1) || std::isnan(this->tuned_params.n2))
+  {return;}
 
   if (this->wheel_state_params.s >= 0)
   {this -> soil_params.n = this->tuned_params.n0 + this->tuned_params.n1 * this->wheel_state_params.s;}
