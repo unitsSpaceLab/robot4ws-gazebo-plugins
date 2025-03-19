@@ -64,6 +64,9 @@
   <exec_depend>roscpp</exec_depend>
   <exec_depend>rospy</exec_depend>
   <exec_depend>tf</exec_depend>
+  <!-- for parallel libaray --> 
+  <build_depend>libgomp</build_depend>
+  <exec_depend>libgomp</exec_depend>
 
 
   <!-- The export tag contains other, unspecified, tags -->

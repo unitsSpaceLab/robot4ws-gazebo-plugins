@@ -26,6 +26,14 @@ find_package(catkin REQUIRED COMPONENTS
 )
 find_package(gazebo REQUIRED)
 
+# Find OpenMP
+find_package(OpenMP REQUIRED)
+if(OPENMP_FOUND)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+    message(STATUS "OpenMP Found: ${OpenMP_CXX_FLAGS}")
+endif()
+
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 
@@ -162,6 +170,9 @@ target_link_libraries(archimede_apply_artificial_slip ${catkin_LIBRARIES} ${GAZE
 
 add_library(apply_single_wheel_terramechanic_model SHARED src/apply_single_wheel_terramechanic_model.cpp)
 target_link_libraries(apply_single_wheel_terramechanic_model ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
+
+add_library(apply_all_wheels_terramechanic_model SHARED src/apply_all_wheels_terramechanic_model.cpp)
+target_link_libraries(apply_all_wheels_terramechanic_model ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES} pthread ${OpenMP_CXX_LIBRARIES})
 
 
 #  add_library(trp_get_body_pose SHARED src/trp_get_body_pose.cpp)
