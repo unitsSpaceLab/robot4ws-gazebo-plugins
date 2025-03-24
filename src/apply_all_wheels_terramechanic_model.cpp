@@ -376,76 +376,123 @@ void ApplyAllWheelsTerramechanicModel::OnUpdateCompact()
         return;
     }
     
-    // // Rate limiter for performance
-    // update_step_counter++;
-    // if (options.skip_update_steps > 0) {
-    //     if (update_step_counter % (options.skip_update_steps + 1) != 0) {
-    //         // On skipped steps, just apply previous forces to maintain behavior
-    //         for (int i = 0; i < num_wheels; i++) {
-    //             if (fabs(wheels[i].wheel_state_params.omega * wheels[i].wheel_params.r_s) >= 0.02) {
-    //                 applyForce(i);
-    //             }
-    //         }
-    //         return;
-    //     }
-    // }
-    
     // 1. First collect all wheel states (serial)
     for (int i = 0; i < num_wheels; i++) {
-        // Set contact frame and wheel state
+        // set wheel frame as contact frame, always apply force (if wheel is moving)
         wheels[i].contact_frame_rot = wheels[i].steer_link->WorldPose().Rot();
+        // rotate frames xy plane such that x axis points forward
         if (wheels[i].name == "Archimede_br_wheel_link" || wheels[i].name == "Archimede_fr_wheel_link") {
             wheels[i].contact_frame_rot = wheels[i].contact_frame_rot * ignition::math::Quaterniond(0, 0, M_PI);
         }
         wheels[i].contact_frame_rot.Normalize();
         
-        // Set wheel shearing radius
         wheels[i].wheel_params.r_s = wheels[i].wheel_params.r + 0.5 * wheels[i].wheel_params.h_g;
         
-        // Get wheel state and compute slips
+        // get wheel state, set wheel_states_params and compute slips
         setWheelStateParams(i);
         
-        // Set soil parameters
+        // manually set soil params
+        // wheels[i].soil_params.name = "Sand_marsSim"; // [Soil_Direct_#90_sand, Sand_marsSim]
         setSoilParams(i);
     }
     
     // 2. Perform calculations (parallel - computationally intensive)
     #pragma omp parallel for schedule(dynamic)
     for (int i = 0; i < num_wheels; i++) {
-        // Skip static wheels
-        if (fabs(wheels[i].wheel_state_params.omega * wheels[i].wheel_params.r_s) < 0.02) {
+        WheelData& wheel = wheels[i];
+        
+        // TODO: case wheel is static, decide what to do & condition (if needed, omega=0 breaks things for now)
+        if (fabs(wheel.wheel_state_params.omega * wheel.wheel_params.r_s) < 0.02)
+        {
+            wheel.wheel_link->SetLinearVel(ignition::math::Vector3d(0,0,0));
+            wheel.wheel_link->SetAngularVel(ignition::math::Vector3d(0,0,0));
+            if(this->debug){ROS_INFO_STREAM("DB [" << wheel.name << "]: wheel is static");}
             continue;
         }
         
-        // Set tuned parameters
+        if(this->debug){ROS_INFO_STREAM("DB [" << wheel.name << "]: wheels rel xy vel: " << wheel.wheel_state_params.v_x << ", " << wheel.wheel_state_params.v_y
+                                                            << "\n\t\t\t\t\t\tomega: " << wheel.wheel_state_params.omega << ", slip: " << wheel.wheel_state_params.s << ", beta: " << 180/M_PI*wheel.wheel_state_params.beta);}
+        
         setTunedParams(i);
         
-        // Compute wheel load
+        // compute wheel load
         computeWheelLoad(i);
         
-        // Find sinkage using compact model approach
-        findSinkage(i);
+        // find sinkage iteratively equalizing computed F_z with wheel load
+        double h_min=0, h_max=1.5*wheel.wheel_params.r_s, max_err=wheel.forces.W*pow(10,-3), F_z=0;
+        double A, B, sigma_m, tau_xm, tau_ym;
+        // binary search algorithm
+        while (fabs(F_z - wheel.forces.W) > fabs(max_err))
+        {
+            double h_0 = (h_max+h_min)/2;
+
+            // simplified geometry
+            double theta_f = acos(1 - h_0 / wheel.wheel_params.r);
+            double theta_r = 0;
+            double theta_m = theta_f / 2;
+
+            // normal stress
+            sigma_m = wheel.soil_params.k * pow(wheel.wheel_params.r * (cos(theta_m) - cos(theta_f)), wheel.soil_params.n);
+
+            // shear stress
+            double j_xm = wheel.wheel_params.r * (theta_f - theta_m - (1 - wheel.wheel_state_params.s) * (sin(theta_f) - sin(theta_m)));
+            double j_ym = wheel.wheel_params.r * (1 - wheel.wheel_state_params.s) * (theta_f - theta_m) * tan(fabs(wheel.wheel_state_params.beta));
+            tau_xm = (wheel.soil_params.c + sigma_m * tan(wheel.soil_params.phi)) * (1 - exp(-j_xm / wheel.soil_params.K));
+            tau_ym = (wheel.soil_params.c + sigma_m * tan(wheel.soil_params.phi)) * (1 - exp(-j_ym / wheel.soil_params.K));
+
+            // Force coefficients
+            A = (cos(theta_m) - cos(theta_r)) / (theta_m - theta_r) + (cos(theta_m) - cos(theta_f)) / (theta_f - theta_m);
+            B = (sin(theta_m) - sin(theta_r)) / (theta_m - theta_r) + (sin(theta_m) - sin(theta_f)) / (theta_f - theta_m);
+
+            // Normal force
+            F_z = wheel.wheel_params.b * (wheel.wheel_params.r * sigma_m * A + wheel.wheel_params.r_s * tau_xm * B);
+
+            if (F_z < wheel.forces.W)
+            {h_min = h_0;}
+            else
+            {h_max = h_0;}
+            if ((h_max-h_min) < pow(10,-6))
+            {
+                ROS_ERROR_STREAM("Sinkage not found for wheel [" << wheel.name << "]: expected Fz = " << wheel.forces.W << ", computed Fz = " << F_z << ", h_min_max = [" << h_min << " - " << h_max << "]");
+                break;
+            }
+            wheel.terramechanics_params.h_0 = h_0;
+            wheel.terramechanics_params.theta_f = theta_f;
+            wheel.terramechanics_params.theta_r = theta_r;
+            wheel.terramechanics_params.theta_m = theta_m;
+        }
+        if(this->debug){ROS_INFO_STREAM("DB [" << wheel.name << "]: Sinkage found: " << wheel.terramechanics_params.h_0);}
+
+        double C = (wheel.terramechanics_params.theta_f - wheel.terramechanics_params.theta_r) / 2;
+
+        // compute forces/moments
+        wheel.forces.F_x = wheel.wheel_params.b * (wheel.wheel_params.r_s * tau_xm * A - wheel.wheel_params.r * sigma_m * B);
+        wheel.forces.F_y = std::copysign(wheel.wheel_params.b * wheel.wheel_params.r_s * tau_ym * C, - wheel.wheel_state_params.beta); // bulldozing neglected
+        wheel.forces.F_z = F_z;
+        wheel.forces.M_x = wheel.forces.F_y * wheel.wheel_params.r_s;
+        wheel.forces.M_y = - wheel.wheel_params.b * pow(wheel.wheel_params.r_s, 2) * tau_xm * C;
+        wheel.forces.M_z = wheel.forces.F_y * wheel.wheel_params.r_s * sin(wheel.terramechanics_params.theta_m);
     }
     
-    // 3. Apply forces (serial - physics engine interaction)
+    // 3. Apply forces and publish results (serial)
     for (int i = 0; i < num_wheels; i++) {
-        // Skip static wheels
-        if (fabs(wheels[i].wheel_state_params.omega * wheels[i].wheel_params.r_s) < 0.02) {
-            wheels[i].wheel_link->SetLinearVel(ignition::math::Vector3d(0, 0, 0));
-            wheels[i].wheel_link->SetAngularVel(ignition::math::Vector3d(0, 0, 0));
+        // TODO: case wheel is static, decide what to do & condition (if needed, omega=0 breaks things for now)
+        if (fabs(wheels[i].wheel_state_params.omega * wheels[i].wheel_params.r_s) < 0.02)
+        {
+            wheels[i].wheel_link->SetLinearVel(ignition::math::Vector3d(0,0,0));
+            wheels[i].wheel_link->SetAngularVel(ignition::math::Vector3d(0,0,0));
+            if(this->debug){ROS_INFO_STREAM("DB [" << wheels[i].name << "]: wheel is static");}
             continue;
         }
         
-        // Apply forces to physics engine
+        // apply forces/moments to the wheel
         applyForce(i);
         
-        // Publish results
-        if (this->publish_results) {
-            publishResults(i);
-        }
+        // publish computed forces/moments (all of them)
+        if (this->publish_results)
+        {publishResults(i);}
     }
 }
-
 
 
 
