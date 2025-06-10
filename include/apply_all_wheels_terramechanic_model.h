@@ -2,6 +2,7 @@
 
 #include <ros/ros.h>
 #include <robot4ws_msgs/Vector3Array.h>
+#include <robot4ws_msgs/Float64NamedArray.h>
 
 #include <functional>
 #include <gazebo/gazebo.hh>
@@ -128,6 +129,8 @@ namespace gazebo
         // ROS publisher and message
         ros::Publisher ros_pub_results;
         robot4ws_msgs::Vector3Array resultMsg;
+        ros::Publisher ros_pub_intermediate_values;
+        robot4ws_msgs::Float64NamedArray intermediateValuesMsg;
         
         // Initialize vectors
         void initVectors(int rim_points) {
@@ -218,6 +221,7 @@ namespace gazebo
             // ROS elements
             ros::NodeHandle* _ros_node;
             std::string ros_pub_results_topic_name;
+            std::string ros_pub_intermediate_values_topic_name;
             
             // Gazebo event connection
             event::ConnectionPtr updateConnection;

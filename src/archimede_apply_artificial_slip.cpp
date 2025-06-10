@@ -122,7 +122,7 @@ void ArchimedeApplyArtificialSlip::slipVelCallback(const SLIP_MESSAGE_TYPE::Cons
     this -> saved_input_target_vels.erase(this -> saved_input_target_vels.begin());
   }
   std::array<ignition::math::Vector3d,4> temp_arr;
-  
+
   for (int i = 0; i < 4; i++)
   {
     temp_arr[i].Set(vel_msg -> vectors[i].x, vel_msg -> vectors[i].y, vel_msg -> vectors[i].z);
@@ -401,7 +401,7 @@ void ArchimedeApplyArtificialSlip::initializeROSelements(void)
 
 void ArchimedeApplyArtificialSlip::publishResults(void)
 {
-  ignition::math::Vector3d actual_vel;;
+  ignition::math::Vector3d actual_vel;
 
   std::string names[] = {"BR_target_vel","FR_target_vel","BL_target_vel","FL_target_vel","BR_actual_vel","FR_actual_vel","BL_actual_vel","FL_actual_vel"};
 

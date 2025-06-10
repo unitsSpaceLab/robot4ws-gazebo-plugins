@@ -275,21 +275,33 @@ void ApplyAllWheelsTerramechanicModel::initializeROSelements()
 {
     this->_ros_node = new ros::NodeHandle();
     this->ros_pub_results_topic_name = "terramechanic_forces";
-    
+    this->ros_pub_intermediate_values_topic_name = "terramechanic_intermediate_values";
+
+    std::vector<std::string> intermediate_values_names = {"omega", "relative_v_x", "relative_v_y", "slip_ratio", "slip_angle", "wheel_load", "sinkage"};
+
     for (int i = 0; i < num_wheels; i++) {
         WheelData& wheel = wheels[i];
-        
-        // Create publisher
+
+        // Create publishers
         wheel.ros_pub_results = this->_ros_node->advertise<robot4ws_msgs::Vector3Array>(
             this->ros_pub_results_topic_name, 100);
-            
-        // Initialize message
+        wheel.ros_pub_intermediate_values = this->_ros_node->advertise<robot4ws_msgs::Float64NamedArray>(
+            this->ros_pub_intermediate_values_topic_name, 100);
+
+        // Initialize messages
         wheel.resultMsg.names.resize(4);
         wheel.resultMsg.names[0] = wheel.name + "::F_contact";
         wheel.resultMsg.names[1] = wheel.name + "::M_contact";
         wheel.resultMsg.names[2] = wheel.name + "::F_world";
         wheel.resultMsg.names[3] = wheel.name + "::M_world";
         wheel.resultMsg.vectors.resize(4);
+
+        wheel.intermediateValuesMsg.names.resize(intermediate_values_names.size());
+        wheel.intermediateValuesMsg.data.resize(intermediate_values_names.size());
+        wheel.intermediateValuesMsg.header.frame_id = wheel.name;
+        for (int i = 0; i < intermediate_values_names.size(); i++) {
+            wheel.intermediateValuesMsg.names[i] = intermediate_values_names[i];
+        }
     }
 }
 
@@ -1114,8 +1126,11 @@ void ApplyAllWheelsTerramechanicModel::computeWheelLoad(int wheel_idx)
 
 void ApplyAllWheelsTerramechanicModel::publishResults(int wheel_idx)
 {
-  WheelData& wheel = wheels[wheel_idx];  
+  WheelData& wheel = wheels[wheel_idx];
+
+  // stamps  
   wheel.resultMsg.header.stamp = ros::Time::now();
+  wheel.intermediateValuesMsg.header.stamp = ros::Time::now();
 
   // contact frame
   ignition::math::Vector3d force_contact(wheel.forces.F_x, wheel.forces.F_y, wheel.forces.F_z);
@@ -1138,5 +1153,16 @@ void ApplyAllWheelsTerramechanicModel::publishResults(int wheel_idx)
   wheel.resultMsg.vectors[3].y = torque_world.Y();
   wheel.resultMsg.vectors[3].z = torque_world.Z();
 
+  // fill intermediate values msg
+  wheel.intermediateValuesMsg.data[0] = wheel.wheel_state_params.omega;
+  wheel.intermediateValuesMsg.data[1] = wheel.wheel_state_params.v_x;
+  wheel.intermediateValuesMsg.data[2] = wheel.wheel_state_params.v_y;
+  wheel.intermediateValuesMsg.data[3] = wheel.wheel_state_params.s;
+  wheel.intermediateValuesMsg.data[4] = wheel.wheel_state_params.beta * 180/M_PI;
+  wheel.intermediateValuesMsg.data[5] = wheel.forces.W;
+  wheel.intermediateValuesMsg.data[6] = wheel.terramechanics_params.h_0;
+
+  // publish
   wheel.ros_pub_results.publish(wheel.resultMsg);
+  wheel.ros_pub_intermediate_values.publish(wheel.intermediateValuesMsg);
 }

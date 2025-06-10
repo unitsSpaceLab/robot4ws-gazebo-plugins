@@ -18,7 +18,22 @@ ApplySingleWheelTerramechanicModel::ApplySingleWheelTerramechanicModel() : Model
 
 ApplySingleWheelTerramechanicModel::~ApplySingleWheelTerramechanicModel()
 {
-  this -> _ros_node -> shutdown();
+  // Safely disconnect update connection
+  if (this->updateConnection) {
+      this->updateConnection.reset();
+  }
+
+  // Safely disconnect contact subscriber
+  if (this->dummy_contact_sub) {
+      this->dummy_contact_sub.reset();
+  }
+
+  if (this->_ros_node) {
+      this->_ros_node->shutdown();
+      delete this->_ros_node;
+      this->_ros_node = nullptr;
+  }
+
   ROS_INFO("apply_wheels_terramechanics_model plugin shutted down");
 }
 
@@ -62,6 +77,7 @@ void ApplySingleWheelTerramechanicModel::Load(physics::ModelPtr _model, sdf::Ele
 void ApplySingleWheelTerramechanicModel::OnUpdate(void)
 {
   /// Run terramechanics model
+  // TO DO: the model breaks (unrealistic behaviour) when (slip ratio < -1), i.e. (sign(v_x)*sign(omega)=-1 && abs(v_x)>abs(omega*r))
 
   // check contact and eventually update soil_params
 /*   if (! this -> checkContacts())
@@ -121,6 +137,7 @@ void ApplySingleWheelTerramechanicModel::OnUpdate(void)
 void ApplySingleWheelTerramechanicModel::OnUpdateCompact(void)
 {
   /// Run terramechanics compact model
+  // TO DO: the model breaks (gazebo crash) when (slip ratio < -1), i.e. (sign(v_x)*sign(omega)=-1 && abs(v_x)>abs(omega*r))
 
   // check contact and eventually update soil_params
 /*   if (! this -> checkContacts())
@@ -336,12 +353,22 @@ void ApplySingleWheelTerramechanicModel::initializeROSelements(void)
   this -> ros_pub_results_topic_name = "terramechanic_forces";
   this -> ros_pub_results = this -> _ros_node -> advertise<robot4ws_msgs::Vector3Array>(this -> ros_pub_results_topic_name,100);
 
+  this -> ros_pub_intermediate_values_topic_name = "terramechanic_intermediate_values";
+  this -> ros_pub_intermediate_values = this -> _ros_node -> advertise<robot4ws_msgs::Float64NamedArray>(this -> ros_pub_intermediate_values_topic_name,100);
+
   this -> resultMsg.names.resize(4);
   this -> resultMsg.names[0] = this -> link_name + "::F_contact";
   this -> resultMsg.names[1] = this -> link_name + "::M_contact";
   this -> resultMsg.names[2] = this -> link_name + "::F_world";
   this -> resultMsg.names[3] = this -> link_name + "::M_world";
   this -> resultMsg.vectors.resize(4);
+
+  std::vector<std::string> names = {"omega", "relative_v_x", "relative_v_y", "slip_ratio", "slip_angle", "wheel_load", "sinkage"};
+  this -> intermediateValuesMsg.names.resize(names.size());
+  this -> intermediateValuesMsg.data.resize(names.size());
+  for (int i = 0; i < names.size(); i++)
+  {this -> intermediateValuesMsg.names[i] = names[i];}
+  this -> intermediateValuesMsg.header.frame_id = this -> link_name;
 }
 
 
@@ -949,8 +976,11 @@ void ApplySingleWheelTerramechanicModel::computeWheelLoad(void)
 
 void ApplySingleWheelTerramechanicModel::publishResults(void)
 {
+  // stamps
   this -> resultMsg.header.stamp = ros::Time::now();
+  this -> intermediateValuesMsg.header.stamp = ros::Time::now();
 
+  // fill forces msg
   // contact frame
   ignition::math::Vector3d force_contact(this->forces.F_x, this->forces.F_y, this->forces.F_z);
   ignition::math::Vector3d torque_contact(this->forces.M_x, this->forces.M_y, this->forces.M_z);
@@ -972,6 +1002,17 @@ void ApplySingleWheelTerramechanicModel::publishResults(void)
   this -> resultMsg.vectors[3].y = torque_world.Y();
   this -> resultMsg.vectors[3].z = torque_world.Z();
 
+  // fill intermediate values msg
+  this -> intermediateValuesMsg.data[0] = this -> wheel_state_params.omega;
+  this -> intermediateValuesMsg.data[1] = this -> wheel_state_params.v_x;
+  this -> intermediateValuesMsg.data[2] = this -> wheel_state_params.v_y;
+  this -> intermediateValuesMsg.data[3] = this -> wheel_state_params.s;
+  this -> intermediateValuesMsg.data[4] = this -> wheel_state_params.beta * 180/M_PI;
+  this -> intermediateValuesMsg.data[5] = this -> forces.W;
+  this -> intermediateValuesMsg.data[6] = this -> terramechanics_params.h_0;
+
+  // publish
   this -> ros_pub_results.publish(this -> resultMsg);
+  this -> ros_pub_intermediate_values.publish(this -> intermediateValuesMsg);
 }
 

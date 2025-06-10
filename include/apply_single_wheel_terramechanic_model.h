@@ -6,6 +6,7 @@
 
 #include <ros/ros.h>
 #include <robot4ws_msgs/Vector3Array.h>
+#include <robot4ws_msgs/Float64NamedArray.h>
 
 #include <functional>
 #include <gazebo/gazebo.hh>
@@ -26,8 +27,6 @@
 #include <cstring>
 
 
-// CHECK message type
-// #define SLIP_MESSAGE_TYPE robot4ws_msgs::Vector3Array
 
 namespace gazebo
 {
@@ -164,6 +163,9 @@ namespace gazebo
             ros::Publisher ros_pub_results;
             std::string ros_pub_results_topic_name;
             robot4ws_msgs::Vector3Array resultMsg;
+            ros::Publisher ros_pub_intermediate_values;
+            std::string ros_pub_intermediate_values_topic_name;
+            robot4ws_msgs::Float64NamedArray intermediateValuesMsg;
 
             double link_mass;   // wheel + steer, this is applied in the CoG of the link
             double rover_dimensions[2]; // longitudinal & lateral distances between the wheels
