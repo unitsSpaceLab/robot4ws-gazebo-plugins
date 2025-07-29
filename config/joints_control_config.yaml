@@ -1,0 +1,65 @@
+joints:
+  - name: "Archimede_br_drive_joint"
+    msg_field: "one_primary" # used for robot4ws_msgs/msg/DynamixelParameters1 message
+    msg_index: 0             # used for actuator_msgs/msg/Actuators message
+    control_type: "velocity" 
+    coeff: -1.0
+
+  - name: "Archimede_fr_drive_joint"
+    msg_field: "two_primary" # used for robot4ws_msgs/msg/DynamixelParameters1 message
+    msg_index: 1             # used for actuator_msgs/msg/Actuators message
+    control_type: "velocity" 
+    coeff: -1.0
+
+  - name: "Archimede_bl_drive_joint"
+    msg_field: "three_primary" # used for robot4ws_msgs/msg/DynamixelParameters1 message
+    msg_index: 2               # used for actuator_msgs/msg/Actuators message
+    control_type: "velocity" 
+    coeff: 1.0
+
+  - name: "Archimede_fl_drive_joint"
+    msg_field: "four_primary" # used for robot4ws_msgs/msg/DynamixelParameters1 message
+    msg_index: 3              # used for actuator_msgs/msg/Actuators message
+    control_type: "velocity" 
+    coeff: 1.0
+
+  - name: "Archimede_br_steer_joint"
+    msg_field: "five_primary" # used for robot4ws_msgs/msg/DynamixelParameters1 message
+    msg_index: 0              # used for actuator_msgs/msg/Actuators message
+    control_type: "position"
+    coeff: 1.0
+    pid:
+      p: 50.0
+      i: 0 #5
+      d: 0 #5
+
+  - name: "Archimede_fr_steer_joint"
+    msg_field: "six_primary" # used for robot4ws_msgs/msg/DynamixelParameters1 message
+    msg_index: 1             # used for actuator_msgs/msg/Actuators message
+    control_type: "position"
+    coeff: 1.0
+    pid:
+      p: 50.0
+      i: 0 #5
+      d: 0 #5
+
+  - name: "Archimede_bl_steer_joint"
+    msg_field: "seven_primary" # used for robot4ws_msgs/msg/DynamixelParameters1 message
+    msg_index: 2               # used for actuator_msgs/msg/Actuators message
+    control_type: "position"
+    coeff: 1.0
+    pid:
+      p: 50.0
+      i: 0 #5
+      d: 0 #5
+
+  - name: "Archimede_fl_steer_joint"
+    msg_field: "eight_primary" # used for robot4ws_msgs/msg/DynamixelParameters1 message
+    msg_index: 3               # used for actuator_msgs/msg/Actuators message
+    control_type: "position"
+    coeff: 1.0
+    pid:
+      p: 50.0
+      i: 0 #5
+      d: 0 #5
+
