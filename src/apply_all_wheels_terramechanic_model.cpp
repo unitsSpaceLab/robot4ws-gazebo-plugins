@@ -14,23 +14,23 @@ ApplyAllWheelsTerramechanicModel::ApplyAllWheelsTerramechanicModel() : ModelPlug
 ApplyAllWheelsTerramechanicModel::~ApplyAllWheelsTerramechanicModel()
 {
     plugin_state = PluginState::SHUTTING_DOWN;
-    
+
     // Safely disconnect update connection
     if (this->updateConnection) {
         this->updateConnection.reset();
     }
-    
+
     // Safely disconnect contact subscriber
     if (this->dummy_contact_sub) {
         this->dummy_contact_sub.reset();
     }
-    
+
     if (this->_ros_node) {
         this->_ros_node->shutdown();
         delete this->_ros_node;
         this->_ros_node = nullptr;
     }
-    
+
     ROS_INFO("apply_all_wheels_terramechanics_model plugin shut down");
 }
 
@@ -86,7 +86,7 @@ void ApplyAllWheelsTerramechanicModel::Load(physics::ModelPtr _model, sdf::Eleme
 void ApplyAllWheelsTerramechanicModel::Init()
 {
     ROS_INFO("apply_all_wheels_terramechanics_model Init() called");
-    
+
     // Check that wheels are properly initialized
     bool all_wheels_ready = true;
     for (int i = 0; i < num_wheels; i++) {
@@ -95,16 +95,16 @@ void ApplyAllWheelsTerramechanicModel::Init()
             break;
         }
     }
-    
+
     if (!all_wheels_ready) {
         ROS_ERROR("Not all wheels initialized properly in Init()");
     } else {
         plugin_state = PluginState::RUNNING;
     }
-    
+
     // Set OpenMP threads to match number of wheels
     omp_set_num_threads(num_wheels);
-    
+
     // Check OpenMP status
     int num_threads = 0;
     #pragma omp parallel
@@ -121,7 +121,7 @@ void ApplyAllWheelsTerramechanicModel::Init()
 void ApplyAllWheelsTerramechanicModel::Reset()
 {
     ROS_INFO("apply_all_wheels_terramechanics_model Reset() called");
-    
+
     // Reset any state that needs to be reset when simulation resets
     for (int i = 0; i < num_wheels; i++) {
         // Reset forces
@@ -131,11 +131,11 @@ void ApplyAllWheelsTerramechanicModel::Reset()
         wheels[i].forces.M_x = 0;
         wheels[i].forces.M_y = 0;
         wheels[i].forces.M_z = 0;
-        
+
         // Reset cached sinkage for warm start
         wheels[i].terramechanics_params.h_0 = 0;
     }
-    
+
     // update_step_counter = 0;
 }
 
@@ -183,7 +183,7 @@ void ApplyAllWheelsTerramechanicModel::initializeWheels()
 bool ApplyAllWheelsTerramechanicModel::initializeWheel(int wheel_idx)
 {
     WheelData& wheel = wheels[wheel_idx];
-    
+
     // Get wheel link
     wheel.wheel_link = this->model->GetLink(wheel.name);
     if (!wheel.wheel_link) {
@@ -217,16 +217,16 @@ bool ApplyAllWheelsTerramechanicModel::initializeWheel(int wheel_idx)
     ignition::math::Vector3d wheel_pos_in_model = wheel.wheel_link->RelativePose().Pos();
     wheel.link_mass = wheel.wheel_link->GetInertial()->Mass() + 
                        wheel.steer_link->GetInertial()->Mass();
-    
+
     // Set rover dimensions once
     if (wheel_idx == 0) {
         this->rover_dimensions[0] = 2 * fabs(wheel_pos_in_model.X());
         this->rover_dimensions[1] = 2 * fabs(wheel_pos_in_model.Y());
-        
+
         // Collect other masses
         auto model_links = this->model->GetLinks();
         this->other_masses.clear();
-        
+
         for (auto link : model_links) {
             if (link->GetName().find("wheel") != std::string::npos || 
                 link->GetName().find("steer") != std::string::npos) {
@@ -249,7 +249,7 @@ bool ApplyAllWheelsTerramechanicModel::initializeWheel(int wheel_idx)
             this->other_masses.push_back(values);
         }
     }
-    
+
     // Set force signs based on wheel position
     if (wheel.name == "Archimede_br_wheel_link") {
         wheel.f_signs[0] = -1; 
@@ -267,7 +267,7 @@ bool ApplyAllWheelsTerramechanicModel::initializeWheel(int wheel_idx)
         ROS_ERROR_STREAM("Unrecognized wheel name: " << wheel.name);
         return false;
     }
-    
+
     return true;
 }
 
@@ -312,7 +312,7 @@ void ApplyAllWheelsTerramechanicModel::OnUpdate()
     if (plugin_state != PluginState::RUNNING) {
         return;
     }
-    
+
     // // Rate limiter for performance
     // update_step_counter++;
     // if (options.skip_update_steps > 0) {
@@ -335,14 +335,14 @@ void ApplyAllWheelsTerramechanicModel::OnUpdate()
             wheels[i].contact_frame_rot = wheels[i].contact_frame_rot * ignition::math::Quaterniond(0, 0, M_PI);
         }
         wheels[i].contact_frame_rot.Normalize();
-        
+
         // Set soil parameters based on terrain
         setSoilParams(i);
-        
+
         // Set wheel state parameters
         setWheelStateParams(i);
     }
-    
+
     // 2. Perform computations (parallel - safe)
     #pragma omp parallel for schedule(dynamic)
     for (int i = 0; i < num_wheels; i++) {
@@ -350,17 +350,17 @@ void ApplyAllWheelsTerramechanicModel::OnUpdate()
         if (fabs(wheels[i].wheel_state_params.omega * wheels[i].wheel_params.r_s) < 0.02) {
             continue;
         }
-        
+
         // Computation-heavy tasks
         setTunedParams(i);
         computeWheelLoad(i);
-        
+
         // Find sinkage and compute forces (computationally intensive)
         if (findSinkage(i)) {
             computeForces(i);
         }
     }
-    
+
     // 3. Apply forces (serial - safe)
     for (int i = 0; i < num_wheels; i++) {
         if (fabs(wheels[i].wheel_state_params.omega * wheels[i].wheel_params.r_s) < 0.02) {
@@ -368,7 +368,7 @@ void ApplyAllWheelsTerramechanicModel::OnUpdate()
             wheels[i].wheel_link->SetAngularVel(ignition::math::Vector3d(0, 0, 0));
             continue;
         }
-        
+
         // Interact with physics engine (not thread-safe)
         applyForce(i);
         

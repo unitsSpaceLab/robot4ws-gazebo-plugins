@@ -174,6 +174,9 @@ target_link_libraries(apply_single_wheel_terramechanic_model ${catkin_LIBRARIES}
 add_library(apply_all_wheels_terramechanic_model SHARED src/apply_all_wheels_terramechanic_model.cpp)
 target_link_libraries(apply_all_wheels_terramechanic_model ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES} pthread ${OpenMP_CXX_LIBRARIES})
 
+add_library(apply_soil_terrain SHARED src/apply_soil_terrain.cpp)
+target_link_libraries(apply_soil_terrain ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES} pthread ${OpenMP_CXX_LIBRARIES})
+
 
 #  add_library(trp_get_body_pose SHARED src/trp_get_body_pose.cpp)
 # # # install(TARGETS trp_get_body_pose LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_PREFIX}/include)
@@ -222,6 +225,7 @@ target_link_libraries(apply_all_wheels_terramechanic_model ${catkin_LIBRARIES} $
 ## in contrast to setup.py, you can choose the destination
  catkin_install_python(PROGRAMS
    src/archimede_apply_artificial_slip_neural_network_node.py
+   src/archimede_apply_artificial_slip_ML.py
    DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
  )
 

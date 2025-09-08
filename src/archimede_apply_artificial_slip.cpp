@@ -378,7 +378,15 @@ void ArchimedeApplyArtificialSlip::initializeROSelements(void)
 { 
   this -> _ros_node = new ros::NodeHandle();
 
-  this -> _ros_node -> param<std::string>("neural_network_output_topic", this -> slip_velocities_topic_name, "terrain_neural_network_out"); 
+  // this -> _ros_node -> param<std::string>("neural_network_output_topic", this -> slip_velocities_topic_name, "terrain_neural_network_out");
+  if (this -> sdf -> HasElement("topic"))
+  {
+    this -> slip_velocities_topic_name = this -> sdf -> GetElement("topic") -> Get<std::string>();
+  }
+  else
+  {
+    this -> slip_velocities_topic_name = "ml_velocity_predictions";
+  }
 
   ros::SubscribeOptions sub_opt2 = ros::SubscribeOptions::create<SLIP_MESSAGE_TYPE>(this -> slip_velocities_topic_name, 100, 
                                   boost::bind(&ArchimedeApplyArtificialSlip::slipVelCallback, this, _1), ros::VoidPtr(), NULL);
@@ -512,7 +520,7 @@ ignition::math::Vector3d ArchimedeApplyArtificialSlip::filter_target_velocity(co
   x=0; y=0; z=0;
   for (int i = 0; i < inp_size; i++)
   {
-    // skip the vectors_to_discard farest points
+    // skip the vectors_to_discard farthest points
     if (distance[i] > sorted_distance[vectors_to_discard])
     {
       continue;
