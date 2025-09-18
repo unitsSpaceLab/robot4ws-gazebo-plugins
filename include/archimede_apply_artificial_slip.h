@@ -53,6 +53,7 @@ namespace gazebo
             void applyForce(void);
             void applyVelocity(void);
             void publishPluginValidation(void);
+            void publishAppliedForces(const ignition::math::Vector3d (&applied_forces_wh)[4]);
             ignition::math::Vector3d filter_target_velocity(const std::vector<ignition::math::Vector3d> &input_values);
 
 
@@ -97,6 +98,11 @@ namespace gazebo
             ros::Publisher valid_plug_pub;
             std::string valid_plug_topic_name;
             geometry_msgs::PoseArray valid_plug_msg;
+
+            bool pub_applied_forces_flag; // publish forces applied to the wheels, in wheel frame
+            ros::Publisher applied_forces_pub;
+            std::string applied_forces_topic_name;
+            robot4ws_msgs::Vector3Array applied_forces_msg;
 
             event::ConnectionPtr updateConnection; // Pointer to the update event connection
 

@@ -21,7 +21,9 @@ ArchimedeApplyArtificialSlip::~ArchimedeApplyArtificialSlip()
   { this -> pub_results.shutdown();}
   if (this -> validate_plugin)
   { this -> valid_plug_pub.shutdown();}
-  
+  if (this -> pub_applied_forces_flag)
+  {this -> applied_forces_pub.shutdown();}
+
   this -> _joint_states_sub.shutdown();
   this -> _slip_velocities_sub.shutdown();
   this -> _ros_node -> shutdown();
@@ -96,7 +98,7 @@ void ArchimedeApplyArtificialSlip::OnUpdate(void)
     {
       // consider the full velocity components
       this -> real_vel[i] = this -> link[i] -> WorldLinearVel();
-      
+
       error = this -> real_vel[i] - this -> target_vel[i];
 
       this -> pid_X_force[i].Update(error.X(), dt);
@@ -139,65 +141,49 @@ void ArchimedeApplyArtificialSlip::slipVelCallback(const SLIP_MESSAGE_TYPE::Cons
   // {
   //   this -> resetForcePID();
   // }
+  if (this -> PIDTuning)
+  {
+    double new_kp, new_ki, new_kd, new_imax;
+    ros::param::get("terrain_slip_plugin_PID_kp", new_kp);
+    ros::param::get("terrain_slip_plugin_PID_ki", new_ki);
+    ros::param::get("terrain_slip_plugin_PID_kd", new_kd);
+    ros::param::get("terrain_slip_plugin_PID_imax", new_imax);
+    if (new_kp != this->pid_X_force->GetPGain() || new_ki != this->pid_X_force->GetIGain() ||
+        new_kd != this->pid_X_force->GetDGain() || new_imax != this->pid_X_force->GetIMax())
+      {this -> resetForcePID();}
+  }
 }
 
 
 void ArchimedeApplyArtificialSlip::applyForce(void)
 {
-  double force_X, force_Y, force_Z;
   ignition::math::Vector3d force_to_add_map, force_to_add_wh;
-  ignition::math::Quaterniond wheel_orient;
 
-  physics::ContactManager *contact_manager = this->model->GetWorld()->Physics()->GetContactManager();
-  // ROS_INFO_STREAM("Contact manager check: " << contact_manager->GetContactCount() << "\n");
-  bool wheels_in_contact[4] = {false};
-  for (int i = 0; i < contact_manager->GetContactCount(); i++)
-  {
-    physics::Contact *contact_i = contact_manager -> GetContact(i);
-    // ROS_INFO_STREAM("Contact " << i << ": " << contact_i->collision1->GetName() << "  -  " << contact_i->collision2->GetName() << "\n");
+  ignition::math::Vector3d applied_forces_wh[4];
 
-    if ((contact_i->collision1->GetModel()->GetName()==this->model->GetName()) == (contact_i->collision2->GetModel()->GetName()==this->model->GetName()))
-    {
-      continue;
-    }
-
-    if ((!wheels_in_contact[0])
-         && (contact_i->collision1->GetName()==this->link_collision_name[0] || contact_i->collision2->GetName()==this->link_collision_name[0]))
-    {
-      wheels_in_contact[0] = true;
-    }
-    else if ((!wheels_in_contact[1])
-         && (contact_i->collision1->GetName()==this->link_collision_name[1] || contact_i->collision2->GetName()==this->link_collision_name[1]))
-    {
-      wheels_in_contact[1] = true;
-    }
-    else if ((!wheels_in_contact[2])
-         && (contact_i->collision1->GetName()==this->link_collision_name[2] || contact_i->collision2->GetName()==this->link_collision_name[2]))
-    {
-      wheels_in_contact[2] = true;
-    }
-    else if ((!wheels_in_contact[3])
-         && (contact_i->collision1->GetName()==this->link_collision_name[3] || contact_i->collision2->GetName()==this->link_collision_name[3]))
-    {
-      wheels_in_contact[3] = true;
-    }
-  }
 
   for (int i = 0; i < 4; i++)
   {
-    // if the wheel is in contact with no other body, don't apply any force
-    if (!wheels_in_contact[i])
+    std::string terrain_below_name;
+    double terrain_below_distance;
+    this -> link[i] -> GetNearestEntityBelow(terrain_below_distance, terrain_below_name);
+
+    if (terrain_below_distance > pow(10,-2))
     {
+      // ROS_INFO_STREAM("[ML plugin]: Wheel [" << i << "] - distance [" << terrain_below_distance << "] from [" << terrain_below_name << "]");
       force_to_add_map = ignition::math::Vector3d(0, 0, 0);
+      // wheels_in_contact[i] = true;
     }
+
     else
     {
-      force_X = this -> pid_X_force[i].GetCmd();
-      force_Y = this -> pid_Y_force[i].GetCmd();
-      force_Z = this -> pid_Z_force[i].GetCmd();
+      // ROS_INFO_STREAM("[ML plugin]: Wheel [" << i << "] - distance [" << terrain_below_distance << "] from [" << terrain_below_name << "]");
+      double force_X = this -> pid_X_force[i].GetCmd();
+      double force_Y = this -> pid_Y_force[i].GetCmd();
+      double force_Z = this -> pid_Z_force[i].GetCmd();
 
       force_to_add_map = ignition::math::Vector3d(force_X, force_Y, force_Z);
-      wheel_orient = this -> link[i] -> GetParentJointsLinks()[0] -> WorldPose().Rot();
+      ignition::math::Quaterniond wheel_orient = this -> link[i] -> GetParentJointsLinks()[0] -> WorldPose().Rot();
 
       force_to_add_wh = wheel_orient.RotateVectorReverse(force_to_add_map);
       force_to_add_wh.Z() = 0; // set to zero the applied force Z-component in wheel frame
@@ -205,6 +191,11 @@ void ArchimedeApplyArtificialSlip::applyForce(void)
     }
 
     this -> link[i] -> AddForce(force_to_add_map);
+
+    if (this -> pub_applied_forces_flag)
+    {
+      applied_forces_wh[i] = force_to_add_wh;
+    }
   }
 
   if(this->check_results)
@@ -218,6 +209,10 @@ void ArchimedeApplyArtificialSlip::applyForce(void)
   if (this->validate_plugin)
   {
     this -> publishPluginValidation();
+  }
+  if (this -> pub_applied_forces_flag)
+  {
+    this -> publishAppliedForces(applied_forces_wh);
   }
 }
 
@@ -259,13 +254,14 @@ void ArchimedeApplyArtificialSlip::initializePluginParam(void)
 
   this -> is_simulation = true; // true for gazebo simulation, false for physical rover. (just for joint_state_topic_name and link mapping)
 
-  this -> check_results = true;  // true: publish results at pub_results_topic_name topic, for check purpose
+  this -> check_results = false;  // true: publish results at pub_results_topic_name topic, for check purpose
   this -> print_results = false; // true: print results on terminal, for check purpose
 
-  this -> validate_plugin = true;
+  this -> validate_plugin = false;
+  this -> pub_applied_forces_flag = false;
 
   this -> PIDTuning = false; // if true the PID params are defined as rosparams and can be changed while running,
-                            // used to tune the PID
+                             // used to tune the PID
 
   // filter initialization
   if (this -> sdf -> HasElement("last_input_vels_to_save"))
@@ -403,6 +399,12 @@ void ArchimedeApplyArtificialSlip::initializeROSelements(void)
   {
     this -> valid_plug_topic_name = "plugin_validation_poses";
     this -> valid_plug_pub = this -> _ros_node -> advertise<geometry_msgs::PoseArray>(this -> valid_plug_topic_name,100);
+  }
+
+  if (this -> pub_applied_forces_flag)
+  {
+    this -> applied_forces_topic_name = "plugin_applied_forces";
+    this -> applied_forces_pub = this -> _ros_node -> advertise<robot4ws_msgs::Vector3Array>(this -> applied_forces_topic_name,100);
   }
 }
 
@@ -547,4 +549,25 @@ ignition::math::Vector3d ArchimedeApplyArtificialSlip::filter_target_velocity(co
   // );
 
   return out;
+}
+
+
+void ArchimedeApplyArtificialSlip::publishAppliedForces(const ignition::math::Vector3d (&applied_forces_wh)[4])
+{
+  this -> applied_forces_msg.names.resize(4);
+  this -> applied_forces_msg.vectors.resize(4);
+
+  this -> applied_forces_msg.header.stamp = ros::Time::now();
+  this -> applied_forces_msg.header.frame_id = "wheels_frame";
+
+  for (int i = 0; i < 4; i++)
+  {
+    this -> applied_forces_msg.names[i] = this -> link_name[i];
+
+    this -> applied_forces_msg.vectors[i].x = applied_forces_wh[i].X();
+    this -> applied_forces_msg.vectors[i].y = applied_forces_wh[i].Y();
+    this -> applied_forces_msg.vectors[i].z = applied_forces_wh[i].Z();
+  }
+
+  this -> applied_forces_pub.publish(this -> applied_forces_msg);
 }

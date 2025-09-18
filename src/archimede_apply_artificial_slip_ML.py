@@ -17,7 +17,7 @@ warnings.filterwarnings("ignore")
 
 class MLVelocityPredictor:
     def __init__(self):
-        self.pub_raw_model_outputs = True # ground frame
+        self.pub_raw_model_outputs = False # ground frame, DB
 
         script_dir = os.path.dirname(os.path.abspath(__file__))
         self.model_pathvxg = os.path.join(script_dir, '../Modelli_DT_robot', 'model_artifactsX')
@@ -104,7 +104,7 @@ class MLVelocityPredictor:
         self.velocity_pub = rospy.Publisher(
             'ml_velocity_predictions', Vector3Array, queue_size=10
         )
-        if self.pub_raw_model_outputs: # use same output_msg ad velocity_pub
+        if self.pub_raw_model_outputs: # use same output_msg as velocity_pub
             self.raw_outs_pub = rospy.Publisher(
                 'ml_raw_predictions', Vector3Array, queue_size=10
             )
@@ -300,7 +300,7 @@ class MLVelocityPredictor:
             ### END - TO REMOVE
 
             # print(f"Slope: {features['slope']:.1f}°, Angle: {features['approach_angles']*180/np.pi:.1f}°, Color: {features['color']}, CmdVel: {features['commanded_velocities']:.3f}, VXG: {vxg_pred:.3f}, VYG: {vyg_pred:.3f}")
-            rospy.loginfo(f"Slope: {features['slope']:.1f}°, Angle: {features['approach_angles']*180/np.pi:.1f}°, Color: {features['color']}, CmdVel: {features['commanded_velocities']:.3f}, VXG: {vxg_pred:.3f}, VYG: {vyg_pred:.3f}")
+            # rospy.loginfo(f"Slope: {features['slope']:.1f}°, Angle: {features['approach_angles']*180/np.pi:.1f}°, Color: {features['color']}, CmdVel: {features['commanded_velocities']:.3f}, VXG: {vxg_pred:.3f}, VYG: {vyg_pred:.3f}")
 
             return vxg_pred, vyg_pred
 
