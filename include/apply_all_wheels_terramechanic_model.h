@@ -82,7 +82,7 @@ namespace gazebo
             double n1;
             double n2;
         } tuned_params;
-        
+
         // Wheel state parameters
         struct {
             double v_x;     // wheel longitudinal velocity, [m/s]
@@ -92,7 +92,7 @@ namespace gazebo
             double s;       // slip/skid ratio, [-]
             double beta;    // slip angle, [rad]
         } wheel_state_params;
-        
+
         // Terramechanics parameters
         struct {
             double h_0;                 // wheel sinkage, [m]
@@ -113,7 +113,7 @@ namespace gazebo
             std::vector<double> v_jt;   // tangential shear velocity, [m/s]
             std::vector<double> v_jl;   // lateral shear velocity, [m/s]
         } terramechanics_params;
-        
+
         // Forces
         struct {
             double W;                 // wheel vertical load (constant), [N]
@@ -125,13 +125,13 @@ namespace gazebo
             double M_y;               // driving moment (around Y axis), [N*m]
             double M_z;               // [N*m]
         } forces;
-        
+
         // ROS publisher and message
         ros::Publisher ros_pub_results;
         robot4ws_msgs::Vector3Array resultMsg;
         ros::Publisher ros_pub_intermediate_values;
         robot4ws_msgs::Float64NamedArray intermediateValuesMsg;
-        
+
         // Initialize vectors
         void initVectors(int rim_points) {
             terramechanics_params.h.resize(rim_points, 0.0);
@@ -165,7 +165,7 @@ namespace gazebo
             // Constants
             static constexpr int num_wheels = 4;
             static constexpr int rim_points = 100;
-            
+
             // Wheel names and indices
             const std::array<std::string, num_wheels> wheel_names = {
                 "Archimede_br_wheel_link",
@@ -173,24 +173,26 @@ namespace gazebo
                 "Archimede_bl_wheel_link", 
                 "Archimede_fl_wheel_link"
             };
-            
+
             // Plugin options
             struct {
                 int rim_pts = rim_points;
                 std::string bulldozing_resistence = "neglect";
                 bool use_compact_model;
+                bool passive_plugin;  // true -> the plugin does not interact with gazebo (apply forces, modify frictions, ecc), but
+                                      // only publishes its results (confrontation purposes)
             } options;
-            
+
             // Initialization methods
             void initializePluginParam();
             void initializeROSelements();
             void initializeWheels();
             bool initializeWheel(int wheel_idx);
-            
+
             // Wheel processing methods
             void processWheel(int wheel_idx);
             void processWheelCompact(int wheel_idx);
-            
+
             // Per-wheel calculation methods
             bool checkContacts(int wheel_idx);
             bool findSinkage(int wheel_idx);
@@ -204,7 +206,7 @@ namespace gazebo
             void setTunedParams(int wheel_idx);
             void applyForce(int wheel_idx);
             void publishResults(int wheel_idx);
-            
+
             // Common data
             std::array<WheelData, num_wheels> wheels;
             sdf::ElementPtr sdf;
@@ -213,19 +215,20 @@ namespace gazebo
             double rover_dimensions[2];
             std::vector<std::vector<double>> other_masses;
             double world_gravity;
-            
+
             // Settings
             bool debug;
             bool publish_results;
-            
+            bool publish_intermediate_values;
+
             // ROS elements
             ros::NodeHandle* _ros_node;
             std::string ros_pub_results_topic_name;
             std::string ros_pub_intermediate_values_topic_name;
-            
+
             // Gazebo event connection
             event::ConnectionPtr updateConnection;
-            
+
             // Contact handling
             transport::NodePtr dummy_contact_node;
             transport::SubscriberPtr dummy_contact_sub;

@@ -79,7 +79,12 @@ void ApplyAllWheelsTerramechanicModel::Load(physics::ModelPtr _model, sdf::Eleme
     }
 
     plugin_state = PluginState::INITIALIZED;
-    ROS_INFO("apply_all_wheels_terramechanics_model plugin successfully loaded");
+    if (this -> options.passive_plugin)
+    {
+        ROS_INFO("apply_all_wheels_terramechanics_model plugin successfully loaded in passive mode");
+    } else {
+        ROS_INFO("apply_all_wheels_terramechanics_model plugin successfully loaded");
+    }
 }
 
 // Initialize method - required by Gazebo ModelPlugin
@@ -149,6 +154,12 @@ void ApplyAllWheelsTerramechanicModel::initializePluginParam()
         this->options.use_compact_model = true;
     }
 
+    if (this->sdf->HasElement("passive_plugin")) {
+        this->options.passive_plugin = this->sdf->GetElement("passive_plugin")->Get<bool>();
+    } else {
+        this->options.passive_plugin = false;
+    }
+
     // if (this->sdf->HasElement("bulldozing_resistance")) {
     //     this->options.bulldozing_resistence = this->sdf->GetElement("bulldozing_resistance")->Get<std::string>();
     // }
@@ -161,6 +172,7 @@ void ApplyAllWheelsTerramechanicModel::initializePluginParam()
 
     this->debug = false; // print some debug stuffs in rosout
     this->publish_results = true; // true: publish the computed forces/moments
+    this->publish_intermediate_values = false;
 }
 
 // Initialize all wheel data
@@ -203,11 +215,14 @@ bool ApplyAllWheelsTerramechanicModel::initializeWheel(int wheel_idx)
     physics::CollisionPtr link_collision = wheel.wheel_link->GetCollision(wheel.collision_name);
     wheel.collision_name = link_collision->GetName();
 
-    // Set friction to zero
-    auto link_friction = link_collision->GetSurface()->FrictionPyramid();
-    link_friction->SetMuPrimary(0);
-    link_friction->SetMuSecondary(0);
-    link_friction->SetMuTorsion(0);
+    if (! this -> options.passive_plugin)
+    {
+        // Set friction to zero
+        auto link_friction = link_collision->GetSurface()->FrictionPyramid();
+        link_friction->SetMuPrimary(0);
+        link_friction->SetMuSecondary(0);
+        link_friction->SetMuTorsion(0);
+    }
 
     // Set wheel parameters
     setWheelParams(wheel_idx);
@@ -364,14 +379,17 @@ void ApplyAllWheelsTerramechanicModel::OnUpdate()
     // 3. Apply forces (serial - safe)
     for (int i = 0; i < num_wheels; i++) {
         if (fabs(wheels[i].wheel_state_params.omega * wheels[i].wheel_params.r_s) < 0.02) {
-            wheels[i].wheel_link->SetLinearVel(ignition::math::Vector3d(0, 0, 0));
-            wheels[i].wheel_link->SetAngularVel(ignition::math::Vector3d(0, 0, 0));
+            if (! this -> options.passive_plugin)
+            {
+                wheels[i].wheel_link->SetLinearVel(ignition::math::Vector3d(0, 0, 0));
+                wheels[i].wheel_link->SetAngularVel(ignition::math::Vector3d(0, 0, 0));
+            }
             continue;
         }
 
         // Interact with physics engine (not thread-safe)
         applyForce(i);
-        
+
         // Publish results
         if (this->publish_results) {
             publishResults(i);
@@ -387,7 +405,7 @@ void ApplyAllWheelsTerramechanicModel::OnUpdateCompact()
     if (plugin_state != PluginState::RUNNING) {
         return;
     }
-    
+
     // 1. First collect all wheel states (serial)
     for (int i = 0; i < num_wheels; i++) {
         // set wheel frame as contact frame, always apply force (if wheel is moving)
@@ -397,39 +415,42 @@ void ApplyAllWheelsTerramechanicModel::OnUpdateCompact()
             wheels[i].contact_frame_rot = wheels[i].contact_frame_rot * ignition::math::Quaterniond(0, 0, M_PI);
         }
         wheels[i].contact_frame_rot.Normalize();
-        
+
         wheels[i].wheel_params.r_s = wheels[i].wheel_params.r + 0.5 * wheels[i].wheel_params.h_g;
-        
+
         // get wheel state, set wheel_states_params and compute slips
         setWheelStateParams(i);
-        
+
         // manually set soil params
         // wheels[i].soil_params.name = "Sand_marsSim"; // [Soil_Direct_#90_sand, Sand_marsSim]
         setSoilParams(i);
     }
-    
+
     // 2. Perform calculations (parallel - computationally intensive)
     #pragma omp parallel for schedule(dynamic)
     for (int i = 0; i < num_wheels; i++) {
         WheelData& wheel = wheels[i];
-        
+
         // TODO: case wheel is static, decide what to do & condition (if needed, omega=0 breaks things for now)
         if (fabs(wheel.wheel_state_params.omega * wheel.wheel_params.r_s) < 0.02)
         {
-            wheel.wheel_link->SetLinearVel(ignition::math::Vector3d(0,0,0));
-            wheel.wheel_link->SetAngularVel(ignition::math::Vector3d(0,0,0));
+            if (! this -> options.passive_plugin)
+            {
+                wheel.wheel_link->SetLinearVel(ignition::math::Vector3d(0,0,0));
+                wheel.wheel_link->SetAngularVel(ignition::math::Vector3d(0,0,0));
+            }
             if(this->debug){ROS_INFO_STREAM("DB [" << wheel.name << "]: wheel is static");}
             continue;
         }
-        
+
         if(this->debug){ROS_INFO_STREAM("DB [" << wheel.name << "]: wheels rel xy vel: " << wheel.wheel_state_params.v_x << ", " << wheel.wheel_state_params.v_y
                                                             << "\n\t\t\t\t\t\tomega: " << wheel.wheel_state_params.omega << ", slip: " << wheel.wheel_state_params.s << ", beta: " << 180/M_PI*wheel.wheel_state_params.beta);}
-        
+
         setTunedParams(i);
-        
+
         // compute wheel load
         computeWheelLoad(i);
-        
+
         // find sinkage iteratively equalizing computed F_z with wheel load
         double h_min=0, h_max=1.5*wheel.wheel_params.r_s, max_err=wheel.forces.W*pow(10,-3), F_z=0;
         double A, B, sigma_m, tau_xm, tau_ym;
@@ -485,21 +506,24 @@ void ApplyAllWheelsTerramechanicModel::OnUpdateCompact()
         wheel.forces.M_y = - wheel.wheel_params.b * pow(wheel.wheel_params.r_s, 2) * tau_xm * C;
         wheel.forces.M_z = wheel.forces.F_y * wheel.wheel_params.r_s * sin(wheel.terramechanics_params.theta_m);
     }
-    
+
     // 3. Apply forces and publish results (serial)
     for (int i = 0; i < num_wheels; i++) {
         // TODO: case wheel is static, decide what to do & condition (if needed, omega=0 breaks things for now)
         if (fabs(wheels[i].wheel_state_params.omega * wheels[i].wheel_params.r_s) < 0.02)
         {
-            wheels[i].wheel_link->SetLinearVel(ignition::math::Vector3d(0,0,0));
-            wheels[i].wheel_link->SetAngularVel(ignition::math::Vector3d(0,0,0));
+            if (! this -> options.passive_plugin)
+            {
+                wheels[i].wheel_link->SetLinearVel(ignition::math::Vector3d(0,0,0));
+                wheels[i].wheel_link->SetAngularVel(ignition::math::Vector3d(0,0,0));
+            }
             if(this->debug){ROS_INFO_STREAM("DB [" << wheels[i].name << "]: wheel is static");}
             continue;
         }
-        
+
         // apply forces/moments to the wheel
         applyForce(i);
-        
+
         // publish computed forces/moments (all of them)
         if (this->publish_results)
         {publishResults(i);}
@@ -511,22 +535,25 @@ void ApplyAllWheelsTerramechanicModel::OnUpdateCompact()
 void ApplyAllWheelsTerramechanicModel::applyForce(int wheel_idx)
 {
     WheelData& wheel = wheels[wheel_idx];
-    
-  // case forces are in contact frame
-  // contact frame: force -> z=0(keep gazebo's), xy = model's
+
+    // case forces are in contact frame
+    // contact frame: force -> z=0(keep gazebo's), xy = model's
     ignition::math::Vector3d force_to_add_contact(wheel.forces.F_x, wheel.forces.F_y, 0);
-      // M_y = M_z = 0, they are drive and steer joints resistent moments, but do not influence the rover movement
+    // M_y = M_z = 0, they are drive and steer joints resistent moments, but do not influence the rover movement
     ignition::math::Vector3d torque_to_add_contact(wheel.forces.M_x, 0, 0);
-      // ignition::math::Vector3d torque_to_add_contact(this->forces.M_x, this->forces.M_y, this->forces.M_z);
+    // ignition::math::Vector3d torque_to_add_contact(this->forces.M_x, this->forces.M_y, this->forces.M_z);
 
     // Transform to world frame
     ignition::math::Vector3d force_to_add = wheel.contact_frame_rot.RotateVector(force_to_add_contact);
     ignition::math::Vector3d torque_to_add = wheel.contact_frame_rot.RotateVector(torque_to_add_contact);
-    
-  // apply force/torque in world frame to the wheel
-    wheel.wheel_link->AddForce(force_to_add);// force in world frame
-    wheel.wheel_link->AddTorque(torque_to_add);// torque in world frame
-    
+
+    // apply force/torque in world frame to the wheel
+    if (! this -> options.passive_plugin)
+    {
+        wheel.wheel_link->AddForce(force_to_add);   // force in world frame
+        wheel.wheel_link->AddTorque(torque_to_add); // torque in world frame
+    }
+
     if (this->debug) {
         ROS_INFO_STREAM("DB [" << wheel.name << "]: applied forces: " << 
                         force_to_add.X() << " - " << force_to_add.Y() << " - " << 
@@ -689,34 +716,34 @@ void ApplyAllWheelsTerramechanicModel::setSoilParams(int wheel_idx)
 void ApplyAllWheelsTerramechanicModel::setWheelStateParams(int wheel_idx)
 {
     WheelData& wheel = wheels[wheel_idx];
-    
+
     // Wheel angular drive velocity
     wheel.wheel_state_params.omega = wheel.wheel_link->RelativeAngularVel().Y();
-    
+
     // Change sign where necessary so that omega > 0 for forward movement
     if (wheel.name == "Archimede_br_wheel_link" || wheel.name == "Archimede_fr_wheel_link") {
         wheel.wheel_state_params.omega *= -1;
     }
-    
+
     // If omega < 0 (backward movement), change its sign and rotate contact frame so it's the same as moving forward in the reverse direction
     if (wheel.wheel_state_params.omega < 0) {
         wheel.wheel_state_params.omega *= -1;
         wheel.contact_frame_rot = wheel.contact_frame_rot * ignition::math::Quaterniond(0, 0, M_PI);
         wheel.contact_frame_rot.Normalize();
     }
-    
+
     // Wheel velocity in contact frame
     ignition::math::Vector3d link_relative_vel = 
         wheel.contact_frame_rot.RotateVectorReverse(wheel.steer_link->WorldLinearVel());
-        
+
     wheel.wheel_state_params.v_x = link_relative_vel.X();
     wheel.wheel_state_params.v_y = link_relative_vel.Y();
-    
+
     wheel.wheel_state_params.v = sqrt(pow(wheel.wheel_state_params.v_x, 2) + 
                                      pow(wheel.wheel_state_params.v_y, 2));
-                                     
+
     wheel.wheel_state_params.beta = atan(wheel.wheel_state_params.v_y / wheel.wheel_state_params.v_x);
-    
+
     if (fabs(wheel.wheel_state_params.omega * wheel.wheel_params.r_s) <= pow(10, -4) && 
         fabs(wheel.wheel_state_params.v_x) <= pow(10, -4)) {
         // Case 0/0
@@ -1153,16 +1180,21 @@ void ApplyAllWheelsTerramechanicModel::publishResults(int wheel_idx)
   wheel.resultMsg.vectors[3].y = torque_world.Y();
   wheel.resultMsg.vectors[3].z = torque_world.Z();
 
-  // fill intermediate values msg
-  wheel.intermediateValuesMsg.data[0] = wheel.wheel_state_params.omega;
-  wheel.intermediateValuesMsg.data[1] = wheel.wheel_state_params.v_x;
-  wheel.intermediateValuesMsg.data[2] = wheel.wheel_state_params.v_y;
-  wheel.intermediateValuesMsg.data[3] = wheel.wheel_state_params.s;
-  wheel.intermediateValuesMsg.data[4] = wheel.wheel_state_params.beta * 180/M_PI;
-  wheel.intermediateValuesMsg.data[5] = wheel.forces.W;
-  wheel.intermediateValuesMsg.data[6] = wheel.terramechanics_params.h_0;
-
   // publish
   wheel.ros_pub_results.publish(wheel.resultMsg);
-  wheel.ros_pub_intermediate_values.publish(wheel.intermediateValuesMsg);
+
+  // fill intermediate values msg
+  if (this->publish_intermediate_values)
+  {
+    wheel.intermediateValuesMsg.data[0] = wheel.wheel_state_params.omega;
+    wheel.intermediateValuesMsg.data[1] = wheel.wheel_state_params.v_x;
+    wheel.intermediateValuesMsg.data[2] = wheel.wheel_state_params.v_y;
+    wheel.intermediateValuesMsg.data[3] = wheel.wheel_state_params.s;
+    wheel.intermediateValuesMsg.data[4] = wheel.wheel_state_params.beta * 180/M_PI;
+    wheel.intermediateValuesMsg.data[5] = wheel.forces.W;
+    wheel.intermediateValuesMsg.data[6] = wheel.terramechanics_params.h_0;
+
+    // publish
+    wheel.ros_pub_intermediate_values.publish(wheel.intermediateValuesMsg);
+  }
 }
